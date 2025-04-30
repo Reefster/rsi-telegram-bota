@@ -9,10 +9,10 @@ from statistics import mean
 TELEGRAM_TOKEN = '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'
 CHAT_ID = '6333148344'
 
-# Binance Futures Setup
+# Binance Setup
 exchange = ccxt.binance({
     'enableRateLimit': True,
-    'options': {'defaultType': 'future'}
+    'options': {'defaultType': 'future'}  # Futures market için
 })
 
 # Logging Setup
@@ -25,7 +25,7 @@ def get_usdt_futures_symbols():
     markets = exchange.load_markets()
     return [symbol for symbol in markets 
             if '/USDT' in symbol 
-            and markets[symbol]['futures']]
+            and markets[symbol].get('future', False)]  # 'future' kontrolü eklendi
 
 def calculate_rsi(prices, period=14):
     deltas = pd.Series(prices).diff(1)
@@ -84,30 +84,32 @@ def send_telegram_alert(message):
 
 def main():
     logging.info("Bot başladı...")
-    symbols = get_usdt_futures_symbols()
-    
-    for symbol in symbols:
+    while True:
         try:
-            meets_condition, data = check_conditions(symbol)
-            if meets_condition:
-                message = (
-                    f"🚨 *RSI SİNYALİ* 🚨\n"
-                    f"*Pair*: {data['symbol']}\n"
-                    f"• 5m RSI: {data['5m']:.2f}\n"
-                    f"• 15m RSI: {data['15m']:.2f}\n"
-                    f"• Ortalama RSI: {data['avg']:.2f}"
-                )
-                send_telegram_alert(message)
-                time.sleep(5)
-                
-            logging.info(f"Kontrol: {symbol} - 5m:{data['5m']:.2f} 15m:{data['15m']:.2f} Ort:{data['avg']:.2f}")
+            symbols = get_usdt_futures_symbols()
+            logging.info(f"Taranacak {len(symbols)} adet pair bulundu")
             
+            for symbol in symbols:
+                meets_condition, data = check_conditions(symbol)
+                if meets_condition:
+                    message = (
+                        f"🚨 *RSI SİNYALİ* 🚨\n"
+                        f"*Pair*: {data['symbol']}\n"
+                        f"• 5m RSI: {data['5m']:.2f}\n"
+                        f"• 15m RSI: {data['15m']:.2f}\n"
+                        f"• Ortalama RSI: {data['avg']:.2f}"
+                    )
+                    send_telegram_alert(message)
+                    time.sleep(5)
+                
+                logging.info(f"Kontrol: {symbol} - 5m:{data['5m']:.2f} 15m:{data['15m']:.2f} Ort:{data['avg']:.2f}")
+                time.sleep(1)
+                
         except Exception as e:
-            logging.error(f"Hata: {symbol} - {str(e)}")
+            logging.error(f"Ana döngü hatası: {str(e)}")
+            time.sleep(60)
         
-        time.sleep(1)
+        time.sleep(300)  # 5 dakika bekle
 
 if __name__ == '__main__':
-    while True:
-        main()
-        time.sleep(300)
+    main()
