@@ -16,12 +16,15 @@ exchange = ccxt.binance({
 })
 
 # Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
-# Kara Liste - USDT HARİÇ Stablecoin isimleri
+# USDT hariç stabil coinler (büyük harfle)
 STABLECOINS = [
     "USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD",
-    "EUR", "EURT", "SUSD", "GUSD", "USTC"
+    "EUR", "EURT", "SUSD", "GUSD", "USTC", "PAX", "HUSD"
 ]
 
 def calculate_rsi(prices, period=14):
@@ -37,10 +40,49 @@ def calculate_rsi(prices, period=14):
 async def send_telegram_alert(message):
     try:
         bot = Bot(token=TELEGRAM_TOKEN)
-        await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
+        await bot.send_message(
+            chat_id=CHAT_ID,
+            text=message,
+            parse_mode='Markdown'
+        )
         logging.info("Telegram mesajı gönderildi.")
     except Exception as e:
         logging.error(f"Telegram hatası: {str(e)}")
+
+def is_stablecoin(symbol_info):
+    """Bir sembolün stabil coin olup olmadığını kontrol eder"""
+    base = symbol_info.get('base', '').upper()
+    quote = symbol_info.get('quote', '').upper()
+    
+    # Base veya quote stabil coin ise True döner
+    return base in STABLECOINS or quote in STABLECOINS
+
+async def get_filtered_symbols():
+    """Filtrelenmiş sembol listesi döner"""
+    markets = exchange.load_markets()
+    filtered = []
+    excluded = []
+    
+    for symbol, market in markets.items():
+        try:
+            # Sadece aktif USDT futures pair'leri
+            if (market.get('quote') == 'USDT' and 
+                market.get('contract') and 
+                market.get('active', True)):
+                
+                # Stabil coin kontrolü
+                if is_stablecoin(market):
+                    excluded.append(symbol)
+                    continue
+                    
+                filtered.append(symbol)
+                
+        except Exception as e:
+            logging.error(f"Market {symbol} kontrol hatası: {str(e)}")
+            continue
+            
+    logging.info(f"Filtrelenmiş {len(filtered)} sembol, {len(excluded)} stabil coin dışlandı")
+    return filtered
 
 async def check_symbol(symbol):
     try:
@@ -66,52 +108,30 @@ async def check_symbol(symbol):
                 f"• Ortalama RSI: `{avg_rsi:.2f}`\n"
             )
             await send_telegram_alert(message)
-            return 1
-        return 0
+            return True
+        return False
 
     except Exception as e:
         logging.error(f"{symbol} hatası: {str(e)}")
-        return 0
+        return False
 
 async def main_loop():
     logging.info("Bot başlatıldı. RSI taraması başlıyor...")
     while True:
         try:
-            all_markets = exchange.load_markets()
-
-            # Tüm USDT coinleri (aktif ve futures)
-            all_symbols = [
-                s for s, m in all_markets.items()
-                if m.get('contract') and m.get('quote') == 'USDT' and m.get('active', True)
-            ]
-
-            # Stablecoin bazlıları filtrele (garantili)
-            filtered_symbols = []
-            stable_filtered = []
-            for symbol in all_symbols:
-                market = all_markets[symbol]
-                base = market.get("base", "").upper()
-                base_id = market.get("baseId", "").upper()
-                symbol_upper = symbol.upper()
-
-                if (
-                    base in STABLECOINS
-                    or base_id in STABLECOINS
-                    or any(stable in symbol_upper for stable in STABLECOINS)
-                ):
-                    stable_filtered.append(symbol)
-                    continue
-
-                filtered_symbols.append(symbol)
-
-            logging.info(f"{len(filtered_symbols)} coin taranacak. {len(stable_filtered)} stabil coin bazlı coin dışlandı.")
-
-            tasks = [check_symbol(symbol) for symbol in filtered_symbols]
-            results = await asyncio.gather(*tasks)
-            found = sum(results)
-
-            logging.info(f"{found} sinyal bulundu. 1 dakika bekleniyor...\n")
+            symbols = await get_filtered_symbols()
+            
+            alert_count = 0
+            for symbol in symbols:
+                if await check_symbol(symbol):
+                    alert_count += 1
+                    await asyncio.sleep(1)  # Rate limit
+                
+                await asyncio.sleep(0.5)  # API limit
+                
+            logging.info(f"Tarama tamamlandı. {alert_count} sinyal bulundu. 1 dakika bekleniyor...")
             await asyncio.sleep(60)
+            
         except Exception as e:
             logging.error(f"Ana döngü hatası: {str(e)}")
             await asyncio.sleep(60)
