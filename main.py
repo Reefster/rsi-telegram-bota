@@ -141,7 +141,7 @@ async def main_loop():
             scan_time = time.time() - scan_start
             logging.info(f"✅ Tarama tamamlandı | {alerts} sinyal | {scan_time:.2f}s")
 
-            sleep_time = max(180 - scan_time, 30)
+            sleep_time = max(180 - scan_time, 0)
             await asyncio.sleep(sleep_time)
 
         except Exception as e:
