@@ -4,6 +4,7 @@ from telegram import Bot
 import logging
 from statistics import mean
 import asyncio
+import time  # Ekledik: süre ölçmek için
 
 # Telegram Ayarları
 TELEGRAM_TOKEN = '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'
@@ -21,11 +22,8 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# USDT hariç stabil coinler (büyük harfle)
-STABLECOINS = [
-    "USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD",
-    "EUR", "EURT", "SUSD", "GUSD", "USTC", "PAX", "HUSD"
-]
+# USDT hariç stabil coinler
+STABLECOINS = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "EUR", "EURT", "SUSD", "GUSD", "USTC"]
 
 def calculate_rsi(prices, period=14):
     deltas = pd.Series(prices).diff()
@@ -50,38 +48,24 @@ async def send_telegram_alert(message):
         logging.error(f"Telegram hatası: {str(e)}")
 
 def is_stablecoin(symbol_info):
-    """Bir sembolün stabil coin olup olmadığını kontrol eder"""
     base = symbol_info.get('base', '').upper()
-    quote = symbol_info.get('quote', '').upper()
-    
-    # Base veya quote stabil coin ise True döner
-    return base in STABLECOINS or quote in STABLECOINS
+    return base in STABLECOINS
 
 async def get_filtered_symbols():
-    """Filtrelenmiş sembol listesi döner"""
     markets = exchange.load_markets()
     filtered = []
-    excluded = []
     
     for symbol, market in markets.items():
         try:
-            # Sadece aktif USDT futures pair'leri
             if (market.get('quote') == 'USDT' and 
                 market.get('contract') and 
-                market.get('active', True)):
-                
-                # Stabil coin kontrolü
-                if is_stablecoin(market):
-                    excluded.append(symbol)
-                    continue
-                    
+                market.get('active', True) and
+                not is_stablecoin(market)):
                 filtered.append(symbol)
-                
         except Exception as e:
             logging.error(f"Market {symbol} kontrol hatası: {str(e)}")
-            continue
             
-    logging.info(f"Filtrelenmiş {len(filtered)} sembol, {len(excluded)} stabil coin dışlandı")
+    logging.info(f"Filtrelenmiş {len(filtered)} sembol bulundu")
     return filtered
 
 async def check_symbol(symbol):
@@ -93,22 +77,35 @@ async def check_symbol(symbol):
             '4h': exchange.fetch_ohlcv(symbol, '4h', limit=100),
         }
 
-        rsi_values = {tf: calculate_rsi([x[4] for x in data]) for tf, data in timeframes.items()}
-        avg_rsi = mean(rsi_values.values())
-
-        if rsi_values['5m'] >= 30 or rsi_values['15m'] >= 30 or avg_rsi >= 25:
+        rsi_values = {
+            '5m': calculate_rsi([x[4] for x in timeframes['5m']]),
+            '15m': calculate_rsi([x[4] for x in timeframes['15m']]),
+            '1h': calculate_rsi([x[4] for x in timeframes['1h']]),
+            '4h': calculate_rsi([x[4] for x in timeframes['4h']])
+        }
+        
+        avg_rsi = mean([rsi_values['1h'], rsi_values['4h']])
+        
+        conditions_met = all([
+            rsi_values['5m'] >= 90,
+            rsi_values['15m'] >= 90,
+            avg_rsi >= 85
+        ])
+        
+        if conditions_met:
             symbol_clean = symbol.replace(':USDT', '').replace('/USDT', '')
             message = (
                 f"🚨 *RSI SİNYALİ* 🚨\n"
                 f"*Pair*: `{symbol_clean}`\n"
-                f"• 5m RSI: `{rsi_values['5m']:.2f}`\n"
-                f"• 15m RSI: `{rsi_values['15m']:.2f}`\n"
+                f"• 5m RSI: `{rsi_values['5m']:.2f}` (≥90)\n"
+                f"• 15m RSI: `{rsi_values['15m']:.2f}` (≥90)\n"
                 f"• 1h RSI: `{rsi_values['1h']:.2f}`\n"
                 f"• 4h RSI: `{rsi_values['4h']:.2f}`\n"
-                f"• Ortalama RSI: `{avg_rsi:.2f}`\n"
+                f"• Ortalama (1h+4h): `{avg_rsi:.2f}` (≥85)"
             )
             await send_telegram_alert(message)
             return True
+            
         return False
 
     except Exception as e:
@@ -116,25 +113,27 @@ async def check_symbol(symbol):
         return False
 
 async def main_loop():
-    logging.info("Bot başlatıldı. RSI taraması başlıyor...")
+    logging.info("Bot başlatıldı. RSI taraması sürekli çalışıyor...")
+
     while True:
         try:
+            start_time = time.time()
+
             symbols = await get_filtered_symbols()
-            
             alert_count = 0
+
             for symbol in symbols:
                 if await check_symbol(symbol):
                     alert_count += 1
-                    await asyncio.sleep(1)  # Rate limit
-                
-                await asyncio.sleep(0.5)  # API limit
-                
-            logging.info(f"Tarama tamamlandı. {alert_count} sinyal bulundu. 1 dakika bekleniyor...")
-            await asyncio.sleep(60)
-            
+                    await asyncio.sleep(2)  # Telegram rate limit
+                await asyncio.sleep(1)  # Binance rate limit
+
+            duration = time.time() - start_time
+            logging.info(f"Tarama tamamlandı. {alert_count} sinyal bulundu. Süre: {duration:.1f} saniye.")
+
         except Exception as e:
             logging.error(f"Ana döngü hatası: {str(e)}")
-            await asyncio.sleep(60)
+            await asyncio.sleep(10)
 
 if __name__ == '__main__':
     asyncio.run(main_loop())
