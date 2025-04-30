@@ -5,6 +5,7 @@ import logging
 from statistics import mean
 import asyncio
 import time
+from datetime import datetime
 
 # Telegram Ayarları
 TELEGRAM_TOKEN = '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'
@@ -13,10 +14,7 @@ CHAT_ID = '6333148344'
 # Binance API Ayarları
 exchange = ccxt.binance({
     'enableRateLimit': True,
-    'options': {
-        'defaultType': 'future',
-        'adjustForTimeDifference': True
-    },
+    'options': {'defaultType': 'future'},
     'timeout': 30000
 })
 
@@ -30,14 +28,10 @@ logging.basicConfig(
     ]
 )
 
-# Stabil Coin Filtresi
-STABLECOINS = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "EUR", "EURT", "SUSD", "GUSD", "USTC"]
-
-# Performans Optimizasyonu
+# Parametreler
 RSI_PERIOD = 14
 OHLCV_LIMIT = 100
-TELEGRAM_DELAY = 1.2  # Telegram rate limit: 30 messages/sec
-BINANCE_DELAY = 0.3   # Binance rate limit: 1200 requests/min
+API_DELAY = 0.3  # Binance rate limit
 
 def calculate_rsi(prices, period=RSI_PERIOD):
     """Optimize RSI hesaplama fonksiyonu"""
@@ -62,62 +56,54 @@ async def send_telegram_alert(message):
             disable_web_page_preview=True
         )
         logging.info("Telegram mesajı gönderildi")
-        await asyncio.sleep(TELEGRAM_DELAY)
     except Exception as e:
         logging.error(f"Telegram hatası: {str(e)}")
 
-def filter_futures_symbols(markets):
-    """Yüksek performanslı sembol filtreleme"""
-    return [
-        symbol for symbol, market in markets.items()
-        if (market.get('quote') == 'USDT'
-            and market.get('contract')
-            and market.get('active')
-            and market.get('base') not in STABLECOINS)
-    ]
-
-async def fetch_ohlcv_batch(symbol, timeframes):
-    """Toplu OHLCV verisi çekme"""
-    results = {}
-    for tf in timeframes:
-        try:
-            data = exchange.fetch_ohlcv(symbol, tf, limit=OHLCV_LIMIT)
-            results[tf] = [x[4] for x in data]  # Sadece kapanış fiyatları
-            await asyncio.sleep(BINANCE_DELAY)
-        except Exception as e:
-            logging.error(f"{symbol} {tf} veri çekme hatası: {str(e)}")
-            results[tf] = None
-    return results
+async def fetch_ohlcv(symbol, timeframe):
+    """OHLCV verisi çekme"""
+    try:
+        data = exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
+        await asyncio.sleep(API_DELAY)
+        return [x[4] for x in data]  # Sadece kapanış fiyatları
+    except Exception as e:
+        logging.error(f"{symbol} {timeframe} veri çekme hatası: {str(e)}")
+        return None
 
 async def check_symbol(symbol):
     """RSI koşullarını kontrol etme"""
     try:
+        # Tüm zaman dilimlerinden veriyi paralel çek
         timeframes = ['5m', '15m', '1h', '4h']
-        closes = await fetch_ohlcv_batch(symbol, timeframes)
+        tasks = [fetch_ohlcv(symbol, tf) for tf in timeframes]
+        closes = await asyncio.gather(*tasks)
         
-        if None in closes.values():
+        if None in closes:
             return False
             
+        # RSI hesapla
         rsi_values = {
             tf: calculate_rsi(prices) 
-            for tf, prices in closes.items()
+            for tf, prices in zip(timeframes, closes)
         }
         
-        avg_rsi = mean([rsi_values['1h'], rsi_values['4h']])
+        # Tüm zaman dilimlerinin ortalaması
+        avg_all = mean(rsi_values.values())
         
-        # Tüm koşulların kontrolü
+        # Koşullar
         if all([
             rsi_values['5m'] >= 90,
             rsi_values['15m'] >= 90,
-            avg_rsi >= 85
+            avg_all >= 85
         ]):
             message = (
                 f"🚀 *RSI ALERT* 🚀\n"
                 f"📈 *Pair*: `{symbol.replace('/USDT', '')}`\n"
                 f"• 5m RSI: `{rsi_values['5m']:.2f}`\n"
                 f"• 15m RSI: `{rsi_values['15m']:.2f}`\n"
-                f"• 1h/4h Avg: `{avg_rsi:.2f}`\n"
-                f"⏱ `{pd.Timestamp.now().strftime('%H:%M:%S')}`"
+                f"• 1h RSI: `{rsi_values['1h']:.2f}`\n"
+                f"• 4h RSI: `{rsi_values['4h']:.2f}`\n"
+                f"• Tüm Ortalama: `{avg_all:.2f}`\n"
+                f"⏱ `{datetime.now().strftime('%H:%M:%S')}`"
             )
             await send_telegram_alert(message)
             return True
@@ -135,7 +121,10 @@ async def main_loop():
         scan_start = time.time()
         try:
             markets = exchange.load_markets()
-            symbols = filter_futures_symbols(markets)
+            symbols = [s for s in markets 
+                      if '/USDT' in s 
+                      and markets[s].get('future')]
+            
             logging.info(f"🔍 {len(symbols)} futures pair taranıyor...")
             
             alerts = 0
@@ -146,11 +135,11 @@ async def main_loop():
             scan_time = time.time() - scan_start
             logging.info(f"✅ Tarama tamamlandı | {alerts} sinyal | {scan_time:.1f}s")
             
-            await asyncio.sleep(max(60 - scan_time, 10))  # Dakikada bir tarama
+            await asyncio.sleep(max(300 - scan_time, 60))  # 5 dakikada bir tarama
             
         except Exception as e:
             logging.error(f"⚠️ Sistem hatası: {str(e)}")
-            await asyncio.sleep(30)
+            await asyncio.sleep(60)
 
 if __name__ == '__main__':
     try:
