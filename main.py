@@ -73,20 +73,18 @@ async def scan(bot):
         except:
             continue
 
-    for item in results:
-       
-            msg = (
-    f"💰: ${item['symbol']}\n"
-    f"🔔: High🔴🔴 RSI Alert 85+\n"
-    f"RSI 5minute: {item['rsi_5m']:.2f}\n"
-    f"RSI 15minute: {item['rsi_15m']:.2f}\n"
-    f"RSI 1hour: {item['rsi_1h']:.2f}\n"
-    f"RSI 4hour: {item['rsi_4h']:.2f}\n"
-    f"Last Price: {item['price']:.7f}"
-
-
+      for item in results:
+        msg = (
+            f"💰: ${item['symbol']}\n"
+            f"🔔: High🔴🔴 RSI Alert 85+\n"
+            f"RSI 5minute: {item['rsi_5m']:.2f}\n"
+            f"RSI 15minute: {item['rsi_15m']:.2f}\n"
+            f"RSI 1hour: {item['rsi_1h']:.2f}\n"
+            f"RSI 4hour: {item['rsi_4h']:.2f}\n"
+            f"Last Price: {item['price']:.7f}"
         )
         await bot.send_message(chat_id=CHAT_ID, text=msg)
+
 
 async def handle_message(update: Update, context):
     if update.message.text.lower() == "deneme_876543":
