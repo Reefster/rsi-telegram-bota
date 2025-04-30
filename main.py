@@ -35,7 +35,7 @@ bot = Bot(token=TELEGRAM_TOKEN)
 RSI_PERIOD = 12
 OHLCV_LIMIT = 50
 API_DELAY = 0.3
-MAX_CONCURRENT = 10
+MAX_CONCURRENT = 15
 
 def calculate_rsi(prices, period=RSI_PERIOD):
     """RSI 12 hesaplama"""
