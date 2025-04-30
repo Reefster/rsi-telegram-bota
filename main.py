@@ -107,9 +107,9 @@ async def check_symbol(symbol):
         
         # Tüm koşulların kontrolü
         if all([
-            rsi_values['5m'] >= 90,
-            rsi_values['15m'] >= 90,
-            avg_rsi >= 85
+            rsi_values['5m'] >= 50,
+            rsi_values['15m'] >= 50,
+            avg_rsi >= 45
         ]):
             message = (
                 f"🚀 *RSI ALERT* 🚀\n"
