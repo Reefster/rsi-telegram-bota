@@ -70,20 +70,15 @@ async def scan(bot):
 
     for item in results:
         msg = (
-            f"💰: ${item['symbol']}
-"
-            f"🔔: High🔴🔴 RSI Alert 85+
-"
-            f"RSI 5minute: {item['rsi_5m']:.2f}
-"
-            f"RSI 15minute: {item['rsi_15m']:.2f}
-"
-            f"RSI 1hour: {item['rsi_1h']:.2f}
-"
-            f"RSI 4hour: {item['rsi_4h']:.2f}
-"
-            f"Last Price: {item['price']:.7f}"
-        )
+    f"💰: ${item['symbol']}\n"
+    f"🔔: High🔴🔴 RSI Alert 85+\n"
+    f"RSI 5minute: {item['rsi_5m']:.2f}\n"
+    f"RSI 15minute: {item['rsi_15m']:.2f}\n"
+    f"RSI 1hour: {item['rsi_1h']:.2f}\n"
+    f"RSI 4hour: {item['rsi_4h']:.2f}\n"
+    f"Last Price: {item['price']:.7f}"
+
+          )
         await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 async def handle_message(update: Update, context):
