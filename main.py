@@ -19,24 +19,38 @@ exchange = ccxt.binance({
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Kara Liste: USDT hariç stablecoin bazlı coinleri taramadan çıkar
+# Stabil coinler (büyük harfle)
 STABLECOINS = [
-    "USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD",
-    "EUR", "EURT", "SUSD", "GUSD", "USTC"
+    "USDT", "USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD",
+    "EUR", "EURT", "SUSD", "GUSD", "USTC", "PAX", "HUSD"
 ]
 
 def get_all_futures_symbols():
     markets = exchange.load_markets()
     symbols = []
+    
     for symbol, market in markets.items():
-        if (
-            market.get('contract')
-            and market.get('quote') == 'USDT'
-            and market.get('active', True)
-        ):
-            base = market['base']
-            if base not in STABLECOINS:
+        try:
+            # Sadece USDT futures pair'leri ve aktif marketler
+            if (market.get('quote') == 'USDT' and 
+                market.get('contract') and 
+                market.get('active', True)):
+                
+                # Base asset kontrolü (stabil coin hariç)
+                base_asset = market['base']
+                if base_asset in STABLECOINS:
+                    continue
+                    
+                # Sembol adında stabil coin geçiyor mu kontrolü
+                if any(stable in symbol.upper() for stable in STABLECOINS):
+                    continue
+                    
                 symbols.append(symbol)
+                
+        except Exception as e:
+            logging.error(f"Market {symbol} kontrol hatası: {str(e)}")
+            continue
+            
     return symbols
 
 def calculate_rsi(prices, period=14):
@@ -93,18 +107,17 @@ async def main_loop():
     while True:
         try:
             symbols = get_all_futures_symbols()
-            logging.info(f"{len(symbols)} coin taranacak (Stablecoin bazlılar hariç).")
-
+            logging.info(f"Taranacak coin sayısı: {len(symbols)}")
+            
             tasks = [check_symbol(symbol) for symbol in symbols]
             results = await asyncio.gather(*tasks)
             found = sum(results)
 
-            logging.info(f"{found} sinyal bulundu. 1 dakika bekleniyor...\n")
-            await asyncio.sleep(60)  # 1 dakikada bir tarama
+            logging.info(f"Tarama tamamlandı. {found} sinyal bulundu. 1 dakika bekleniyor...\n")
+            await asyncio.sleep(60)
         except Exception as e:
             logging.error(f"Ana döngü hatası: {str(e)}")
             await asyncio.sleep(60)
 
 if __name__ == '__main__':
     asyncio.run(main_loop())
-
