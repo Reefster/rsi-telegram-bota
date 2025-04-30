@@ -1,5 +1,0 @@
-ccxt==4.1.98
-pandas
-ta
-python-telegram-bot==20.7
-aiohttp
