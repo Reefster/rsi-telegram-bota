@@ -1,6 +1,5 @@
 import ccxt
 import pandas as pd
-import time
 from telegram import Bot
 import logging
 from statistics import mean
@@ -24,23 +23,6 @@ STABLECOINS = [
     "USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD",
     "EUR", "EURT", "SUSD", "GUSD", "USTC"
 ]
-
-def get_all_futures_symbols():
-    markets = exchange.load_markets()
-    symbols = []
-    for symbol, market in markets.items():
-        if (
-            market.get('contract')
-            and market.get('quote') == 'USDT'
-            and market.get('active', True)
-        ):
-            base = market['base']
-            if base in STABLECOINS:
-                continue
-            if any(stable in symbol for stable in STABLECOINS):
-                continue
-            symbols.append(symbol)
-    return symbols
 
 def calculate_rsi(prices, period=14):
     deltas = pd.Series(prices).diff()
@@ -95,12 +77,29 @@ async def main_loop():
     logging.info("Bot başlatıldı. RSI taraması başlıyor...")
     while True:
         try:
+            # Tek seferde market verisi al
             all_markets = exchange.load_markets()
-            all_symbols = [s for s in all_markets if all_markets[s].get('contract') and all_markets[s].get('quote') == 'USDT']
-            symbols = get_all_futures_symbols()
-            logging.info(f"{len(symbols)} coin taranacak. {len(all_symbols) - len(symbols)} stabil coin bazlı coin dışlandı.")
 
-            tasks = [check_symbol(symbol) for symbol in symbols]
+            # Tüm USDT paritelerini al (aktif ve future olanlar)
+            all_symbols = [
+                s for s, m in all_markets.items()
+                if m.get('contract') and m.get('quote') == 'USDT' and m.get('active', True)
+            ]
+
+            # Stablecoin bazlı coinleri filtrele
+            filtered_symbols = []
+            for symbol in all_symbols:
+                base = all_markets[symbol]['base']
+                if base in STABLECOINS:
+                    continue
+                if any(stable in symbol for stable in STABLECOINS):
+                    continue
+                filtered_symbols.append(symbol)
+
+            logging.info(f"{len(filtered_symbols)} coin taranacak. {len(all_symbols) - len(filtered_symbols)} stabil coin bazlı coin dışlandı.")
+
+            # Eşzamanlı kontrol
+            tasks = [check_symbol(symbol) for symbol in filtered_symbols]
             results = await asyncio.gather(*tasks)
             found = sum(results)
 
