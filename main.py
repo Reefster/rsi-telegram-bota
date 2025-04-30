@@ -6,37 +6,32 @@ import logging
 from statistics import mean
 import asyncio
 
-# Config
+# Telegram Ayarları
 TELEGRAM_TOKEN = '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'
 CHAT_ID = '6333148344'
-TEST_MODE = True  # Test için düşük eşikler
 
-# Binance Setup
+# Binance Ayarları
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'future'}
 })
 
-# Logging Setup
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def get_all_futures_symbols():
     markets = exchange.load_markets()
-    return [symbol for symbol in markets 
-            if '/USDT' in symbol 
-            and markets[symbol].get('future', False)]
+    return [
+        symbol for symbol in markets
+        if symbol.endswith('/USDT') and markets[symbol].get('future', False)
+    ]
 
 def calculate_rsi(prices, period=14):
-    deltas = pd.Series(prices).diff(1)
+    deltas = pd.Series(prices).diff()
     gain = deltas.where(deltas > 0, 0)
     loss = -deltas.where(deltas < 0, 0)
-    
-    avg_gain = gain.rolling(period).mean()
-    avg_loss = loss.rolling(period).mean()
-    
+    avg_gain = gain.rolling(window=period).mean()
+    avg_loss = loss.rolling(window=period).mean()
     rs = avg_gain / avg_loss.replace(0, 1e-10)
     rsi = 100 - (100 / (1 + rs))
     return rsi.iloc[-1]
@@ -44,87 +39,55 @@ def calculate_rsi(prices, period=14):
 async def send_telegram_alert(message):
     try:
         bot = Bot(token=TELEGRAM_TOKEN)
-        await bot.send_message(
-            chat_id=CHAT_ID,
-            text=message,
-            parse_mode='Markdown'
-        )
-        logging.info("Telegram mesajı gönderildi")
+        await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
+        logging.info("Telegram mesajı gönderildi.")
     except Exception as e:
         logging.error(f"Telegram hatası: {str(e)}")
 
-def check_conditions(symbol):
+async def check_symbol(symbol):
     try:
         timeframes = {
             '5m': exchange.fetch_ohlcv(symbol, '5m', limit=100),
             '15m': exchange.fetch_ohlcv(symbol, '15m', limit=100),
             '1h': exchange.fetch_ohlcv(symbol, '1h', limit=100),
-            '4h': exchange.fetch_ohlcv(symbol, '4h', limit=100)
+            '4h': exchange.fetch_ohlcv(symbol, '4h', limit=100),
         }
-        
-        rsi_values = {tf: calculate_rsi([x[4] for x in data]) 
-                     for tf, data in timeframes.items()}
-        
+
+        rsi_values = {tf: calculate_rsi([x[4] for x in data]) for tf, data in timeframes.items()}
         avg_rsi = mean(rsi_values.values())
-        
-        # TEST MODU için eşik değerler
-        if TEST_MODE:
-            condition1 = rsi_values['5m'] >= 30  # Normalde 90
-            condition2 = rsi_values['15m'] >= 30  # Normalde 90
-            condition3 = avg_rsi >= 25  # Normalde 85
-        else:
-            condition1 = rsi_values['5m'] >= 90
-            condition2 = rsi_values['15m'] >= 90
-            condition3 = avg_rsi >= 85
-        
-        logging.info(f"{symbol} | 5m:{rsi_values['5m']:.2f} 15m:{rsi_values['15m']:.2f} Ort:{avg_rsi:.2f}")
-        
-        return all([condition1, condition2, condition3]), {
-            'symbol': symbol.replace(':USDT', ''),
-            '5m': rsi_values['5m'],
-            '15m': rsi_values['15m'],
-            '1h': rsi_values['1h'],
-            '4h': rsi_values['4h'],
-            'avg': avg_rsi
-        }
-        
+
+        if rsi_values['5m'] >= 90 or rsi_values['15m'] >= 90 or avg_rsi >= 85:
+            symbol_clean = symbol.replace(':USDT', '').replace('/USDT', '')
+            message = (
+                f"🚨 *RSI SİNYALİ* 🚨\n"
+                f"*Pair*: `{symbol_clean}`\n"
+                f"• 5m RSI: `{rsi_values['5m']:.2f}`\n"
+                f"• 15m RSI: `{rsi_values['15m']:.2f}`\n"
+                f"• 1h RSI: `{rsi_values['1h']:.2f}`\n"
+                f"• 4h RSI: `{rsi_values['4h']:.2f}`\n"
+                f"• Ortalama RSI: `{avg_rsi:.2f}`\n"
+            )
+            await send_telegram_alert(message)
+            return 1
+        return 0
+
     except Exception as e:
-        logging.error(f"Hata: {symbol} - {str(e)}")
-        return False, None
+        logging.error(f"{symbol} hatası: {str(e)}")
+        return 0
 
 async def main_loop():
-    logging.info(f"Bot başladı... TEST MODU: {'AKTİF' if TEST_MODE else 'PASİF'}")
+    logging.info("Bot başlatıldı. RSI taraması başlıyor...")
     while True:
         try:
             symbols = get_all_futures_symbols()
-            logging.info(f"Taranacak {len(symbols)} adet pair bulundu")
-            
-            alert_count = 0
-            for symbol in symbols:
-                try:
-                    meets_condition, data = check_conditions(symbol)
-                    if meets_condition:
-                        message = (
-                            f"🚨 *RSI SİNYALİ* 🚨\n"
-                            f"*Pair*: `{data['symbol']}`\n"
-                            f"• 5m RSI: `{data['5m']:.2f}`\n"
-                            f"• 15m RSI: `{data['15m']:.2f}`\n"
-                            f"• 1h RSI: `{data['1h']:.2f}`\n"
-                            f"• 4h RSI: `{data['4h']:.2f}`\n"
-                            f"• Ortalama: `{data['avg']:.2f}`\n"
-                            f"🔹 *TEST MODE*: `{'AKTİF' if TEST_MODE else 'PASİF'}`"
-                        )
-                        await send_telegram_alert(message)
-                        alert_count += 1
-                        await asyncio.sleep(2)
-                except Exception as e:
-                    logging.error(f"Pair kontrol hatası: {symbol} - {str(e)}")
-                
-                await asyncio.sleep(0.5)
-                
-            logging.info(f"Tarama tamamlandı. {alert_count} sinyal bulundu. 5 dakika bekleniyor...")
-            await asyncio.sleep(300)
-            
+            logging.info(f"{len(symbols)} adet coin taranacak...")
+
+            tasks = [check_symbol(symbol) for symbol in symbols]
+            results = await asyncio.gather(*tasks)
+            found = sum(results)
+
+            logging.info(f"{found} sinyal bulundu. 1 dakika bekleniyor...\n")
+            await asyncio.sleep(60)  # 1 dakika bekleme
         except Exception as e:
             logging.error(f"Ana döngü hatası: {str(e)}")
             await asyncio.sleep(60)
