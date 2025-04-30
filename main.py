@@ -22,9 +22,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 def get_all_futures_symbols():
     markets = exchange.load_markets()
     return [
-        symbol for symbol in markets
-        if symbol.endswith('/USDT') and markets[symbol].get('future', False)
+        symbol for symbol, market in markets.items()
+        if market.get('contract') 
+        and market.get('quote') == 'USDT' 
+        and market.get('active', True)
     ]
+
 
 def calculate_rsi(prices, period=14):
     deltas = pd.Series(prices).diff()
