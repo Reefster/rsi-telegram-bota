@@ -91,9 +91,9 @@ async def check_symbol(symbol):
         
         # Koşullar
         if all([
-            rsi_values['5m'] >= 40,
-            rsi_values['15m'] >= 40,
-            avg_all >= 45
+            rsi_values['5m'] >= 90,
+            rsi_values['15m'] >= 90,
+            avg_all >= 85
         ]):
             message = (
                 f"🚀 *RSI ALERT* 🚀\n"
