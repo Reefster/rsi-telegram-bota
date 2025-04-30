@@ -4,6 +4,7 @@ import time
 from telegram import Bot
 import logging
 from statistics import mean
+import asyncio
 
 # Config
 TELEGRAM_TOKEN = '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'
@@ -24,30 +25,9 @@ logging.basicConfig(
 
 def get_all_futures_symbols():
     markets = exchange.load_markets()
-    futures_symbols = []
-    
-    for symbol in markets:
-        try:
-            # Hem USDT hem de futures olduğunu kontrol et
-            if '/USDT' in symbol and markets[symbol].get('future', False):
-                # Kontrat tipini güvenli şekilde kontrol et
-                if 'info' in markets[symbol]:
-                    contract_info = markets[symbol]['info']
-                    if isinstance(contract_info, dict):
-                        if 'contractType' in contract_info:
-                            if contract_info['contractType'].lower() in ['perpetual', 'current_quarter', 'next_quarter']:
-                                futures_symbols.append(symbol)
-                        else:
-                            # contractType yoksa ama future True ise yine ekle
-                            futures_symbols.append(symbol)
-                else:
-                    # info kısmı yoksa ama future True ise yine ekle
-                    futures_symbols.append(symbol)
-        except Exception as e:
-            logging.error(f"Symbol {symbol} kontrol hatası: {str(e)}")
-            continue
-            
-    return futures_symbols
+    return [symbol for symbol in markets 
+            if '/USDT' in symbol 
+            and markets[symbol].get('future', False)]
 
 def calculate_rsi(prices, period=14):
     deltas = pd.Series(prices).diff(1)
@@ -60,6 +40,18 @@ def calculate_rsi(prices, period=14):
     rs = avg_gain / avg_loss.replace(0, 1e-10)
     rsi = 100 - (100 / (1 + rs))
     return rsi.iloc[-1]
+
+async def send_telegram_alert(message):
+    try:
+        bot = Bot(token=TELEGRAM_TOKEN)
+        await bot.send_message(
+            chat_id=CHAT_ID,
+            text=message,
+            parse_mode='Markdown'
+        )
+        logging.info("Telegram mesajı gönderildi")
+    except Exception as e:
+        logging.error(f"Telegram hatası: {str(e)}")
 
 def check_conditions(symbol):
     try:
@@ -100,19 +92,7 @@ def check_conditions(symbol):
         logging.error(f"Hata: {symbol} - {str(e)}")
         return False, None
 
-def send_telegram_alert(message):
-    try:
-        bot = Bot(token=TELEGRAM_TOKEN)
-        bot.send_message(
-            chat_id=CHAT_ID,
-            text=message,
-            parse_mode='Markdown'
-        )
-        logging.info("Telegram mesajı gönderildi")
-    except Exception as e:
-        logging.error(f"Telegram hatası: {str(e)}")
-
-def main():
+async def main_loop():
     logging.info(f"Bot başladı... TEST MODU: {'AKTİF' if TEST_MODE else 'PASİF'}")
     while True:
         try:
@@ -131,22 +111,23 @@ def main():
                             f"• 15m RSI: `{data['15m']:.2f}`\n"
                             f"• 1h RSI: `{data['1h']:.2f}`\n"
                             f"• 4h RSI: `{data['4h']:.2f}`\n"
-                            f"• Ortalama: `{data['avg']:.2f}`"
+                            f"• Ortalama: `{data['avg']:.2f}`\n"
+                            f"🔹 *TEST MODE*: `{'AKTİF' if TEST_MODE else 'PASİF'}`"
                         )
-                        send_telegram_alert(message)
+                        await send_telegram_alert(message)
                         alert_count += 1
-                        time.sleep(2)
+                        await asyncio.sleep(2)
                 except Exception as e:
                     logging.error(f"Pair kontrol hatası: {symbol} - {str(e)}")
                 
-                time.sleep(0.5)  # API rate limit için
+                await asyncio.sleep(0.5)
                 
             logging.info(f"Tarama tamamlandı. {alert_count} sinyal bulundu. 5 dakika bekleniyor...")
-            time.sleep(300)
+            await asyncio.sleep(300)
             
         except Exception as e:
             logging.error(f"Ana döngü hatası: {str(e)}")
-            time.sleep(60)
+            await asyncio.sleep(60)
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main_loop())
