@@ -135,7 +135,7 @@ async def main_loop():
             scan_time = time.time() - scan_start
             logging.info(f"✅ Tarama tamamlandı | {alerts} sinyal | {scan_time:.1f}s")
             
-            await asyncio.sleep(max(300 - scan_time, 60))  # 5 dakikada bir tarama
+            await asyncio.sleep(max(180 - scan_time, 60))  # 5 dakikada bir tarama
             
         except Exception as e:
             logging.error(f"⚠️ Sistem hatası: {str(e)}")
