@@ -77,28 +77,35 @@ async def main_loop():
     logging.info("Bot başlatıldı. RSI taraması başlıyor...")
     while True:
         try:
-            # Tek seferde market verisi al
             all_markets = exchange.load_markets()
 
-            # Tüm USDT paritelerini al (aktif ve future olanlar)
+            # Tüm USDT coinleri (aktif ve futures)
             all_symbols = [
                 s for s, m in all_markets.items()
                 if m.get('contract') and m.get('quote') == 'USDT' and m.get('active', True)
             ]
 
-            # Stablecoin bazlı coinleri filtrele
+            # Stablecoin bazlıları filtrele (garantili)
             filtered_symbols = []
+            stable_filtered = []
             for symbol in all_symbols:
-                base = all_markets[symbol]['base']
-                if base in STABLECOINS:
+                market = all_markets[symbol]
+                base = market.get("base", "").upper()
+                base_id = market.get("baseId", "").upper()
+                symbol_upper = symbol.upper()
+
+                if (
+                    base in STABLECOINS
+                    or base_id in STABLECOINS
+                    or any(stable in symbol_upper for stable in STABLECOINS)
+                ):
+                    stable_filtered.append(symbol)
                     continue
-                if any(stable in symbol for stable in STABLECOINS):
-                    continue
+
                 filtered_symbols.append(symbol)
 
-            logging.info(f"{len(filtered_symbols)} coin taranacak. {len(all_symbols) - len(filtered_symbols)} stabil coin bazlı coin dışlandı.")
+            logging.info(f"{len(filtered_symbols)} coin taranacak. {len(stable_filtered)} stabil coin bazlı coin dışlandı.")
 
-            # Eşzamanlı kontrol
             tasks = [check_symbol(symbol) for symbol in filtered_symbols]
             results = await asyncio.gather(*tasks)
             found = sum(results)
@@ -111,4 +118,3 @@ async def main_loop():
 
 if __name__ == '__main__':
     asyncio.run(main_loop())
-
