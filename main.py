@@ -8,9 +8,7 @@ from statistics import mean
 # Config
 TELEGRAM_TOKEN = '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'
 CHAT_ID = '6333148344'
-
-# TEST MODU (True yapınca düşük eşiklerle çalışır)
-TEST_MODE = True
+TEST_MODE = True  # Test için düşük eşikler
 
 # Binance Setup
 exchange = ccxt.binance({
@@ -26,10 +24,30 @@ logging.basicConfig(
 
 def get_all_futures_symbols():
     markets = exchange.load_markets()
-    return [symbol for symbol in markets 
-            if '/USDT' in symbol 
-            and ('swap' in markets[symbol]['info']['contractType'].lower() 
-                 or 'perpetual' in markets[symbol]['info']['contractType'].lower())]
+    futures_symbols = []
+    
+    for symbol in markets:
+        try:
+            # Hem USDT hem de futures olduğunu kontrol et
+            if '/USDT' in symbol and markets[symbol].get('future', False):
+                # Kontrat tipini güvenli şekilde kontrol et
+                if 'info' in markets[symbol]:
+                    contract_info = markets[symbol]['info']
+                    if isinstance(contract_info, dict):
+                        if 'contractType' in contract_info:
+                            if contract_info['contractType'].lower() in ['perpetual', 'current_quarter', 'next_quarter']:
+                                futures_symbols.append(symbol)
+                        else:
+                            # contractType yoksa ama future True ise yine ekle
+                            futures_symbols.append(symbol)
+                else:
+                    # info kısmı yoksa ama future True ise yine ekle
+                    futures_symbols.append(symbol)
+        except Exception as e:
+            logging.error(f"Symbol {symbol} kontrol hatası: {str(e)}")
+            continue
+            
+    return futures_symbols
 
 def calculate_rsi(prices, period=14):
     deltas = pd.Series(prices).diff(1)
@@ -67,7 +85,7 @@ def check_conditions(symbol):
             condition2 = rsi_values['15m'] >= 90
             condition3 = avg_rsi >= 85
         
-        logging.info(f"TEST {'AKTİF' if TEST_MODE else 'PASİF'} | {symbol} | 5m:{rsi_values['5m']:.2f} 15m:{rsi_values['15m']:.2f} Ort:{avg_rsi:.2f}")
+        logging.info(f"{symbol} | 5m:{rsi_values['5m']:.2f} 15m:{rsi_values['15m']:.2f} Ort:{avg_rsi:.2f}")
         
         return all([condition1, condition2, condition3]), {
             'symbol': symbol.replace(':USDT', ''),
@@ -113,8 +131,7 @@ def main():
                             f"• 15m RSI: `{data['15m']:.2f}`\n"
                             f"• 1h RSI: `{data['1h']:.2f}`\n"
                             f"• 4h RSI: `{data['4h']:.2f}`\n"
-                            f"• Ortalama: `{data['avg']:.2f}`\n"
-                            f"🔹 *TEST MODE*: `{'AKTİF' if TEST_MODE else 'PASİF'}`"
+                            f"• Ortalama: `{data['avg']:.2f}`"
                         )
                         send_telegram_alert(message)
                         alert_count += 1
