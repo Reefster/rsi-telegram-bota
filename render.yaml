@@ -1,8 +1,0 @@
-services:
-  - type: worker
-    name: rsi-telegram-bot
-    runtime: python
-    plan: starter
-    buildCommand: ""
-    startCommand: "python main.py"
-    autoDeploy: true
