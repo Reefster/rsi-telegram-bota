@@ -28,13 +28,17 @@ logging.basicConfig(
     ]
 )
 
-# Parametreler
-RSI_PERIOD = 14
-OHLCV_LIMIT = 100
-API_DELAY = 0.3  # Binance rate limit
+# Global Bot Instance
+bot = Bot(token=TELEGRAM_TOKEN)
 
-def calculate_rsi(prices, period=RSI_PERIOD):
-    """Optimize RSI hesaplama fonksiyonu"""
+# Parametreler (DEĞİŞEN KISIM)
+RSI_PERIOD = 12  # 14 yerine 12 yapıldı
+OHLCV_LIMIT = 100
+API_DELAY = 0.4
+MAX_CONCURRENT = 8
+
+def calculate_rsi(prices, period=RSI_PERIOD):  # RSI 12 için güncellendi
+    """RSI 12 hesaplama fonksiyonu"""
     deltas = pd.Series(prices).diff()
     gain = deltas.clip(lower=0)
     loss = -deltas.clip(upper=0)
@@ -46,9 +50,8 @@ def calculate_rsi(prices, period=RSI_PERIOD):
     return 100 - (100 / (1 + rs)).iloc[-1]
 
 async def send_telegram_alert(message):
-    """Güvenli mesaj gönderme fonksiyonu"""
+    """Güvenli mesaj gönderme"""
     try:
-        bot = Bot(token=TELEGRAM_TOKEN)
         await bot.send_message(
             chat_id=CHAT_ID,
             text=message,
@@ -56,47 +59,43 @@ async def send_telegram_alert(message):
             disable_web_page_preview=True
         )
         logging.info("Telegram mesajı gönderildi")
+        await asyncio.sleep(1.5)  # Telegram rate limit
     except Exception as e:
         logging.error(f"Telegram hatası: {str(e)}")
 
 async def fetch_ohlcv(symbol, timeframe):
     """OHLCV verisi çekme"""
     try:
-        data = exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
+        data = await exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
         await asyncio.sleep(API_DELAY)
-        return [x[4] for x in data]  # Sadece kapanış fiyatları
+        return [x[4] for x in data]
     except Exception as e:
-        logging.error(f"{symbol} {timeframe} veri çekme hatası: {str(e)}")
+        logging.error(f"{symbol} {timeframe} veri hatası: {str(e)}")
         return None
 
 async def check_symbol(symbol):
-    """RSI koşullarını kontrol etme"""
+    """RSI koşullarını kontrol et (COOLDOWN KALDIRILDI)"""
     try:
-        # Tüm zaman dilimlerinden veriyi paralel çek
         timeframes = ['5m', '15m', '1h', '4h']
-        tasks = [fetch_ohlcv(symbol, tf) for tf in timeframes]
-        closes = await asyncio.gather(*tasks)
+        closes = await asyncio.gather(*[fetch_ohlcv(symbol, tf) for tf in timeframes])
         
         if None in closes:
             return False
             
-        # RSI hesapla
         rsi_values = {
             tf: calculate_rsi(prices) 
             for tf, prices in zip(timeframes, closes)
         }
-        
-        # Tüm zaman dilimlerinin ortalaması
         avg_all = mean(rsi_values.values())
         
-        # Koşullar
+        # ORİJİNAL STRATEJİ KOŞULLARI (RSI 12 ile)
         if all([
             rsi_values['5m'] >= 90,
             rsi_values['15m'] >= 90,
             avg_all >= 85
         ]):
             message = (
-                f"🚀 *RSI ALERT* 🚀\n"
+                f"🚀 *RSI-12 ALERT* 🚀\n"
                 f"📈 *Pair*: `{symbol.replace('/USDT', '')}`\n"
                 f"• 5m RSI: `{rsi_values['5m']:.2f}`\n"
                 f"• 15m RSI: `{rsi_values['15m']:.2f}`\n"
@@ -110,32 +109,41 @@ async def check_symbol(symbol):
             
     except Exception as e:
         logging.error(f"{symbol} işlem hatası: {str(e)}")
-    
     return False
 
 async def main_loop():
-    """Ana işlem döngüsü"""
-    logging.info("⚡ Binance Futures RSI Botu Başlatıldı")
+    """Ana işlem döngüsü (3 dakikada bir tarama)"""
+    logging.info("⚡ Binance Futures RSI-12 Botu Başlatıldı")
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
     
     while True:
         scan_start = time.time()
         try:
-            markets = exchange.load_markets()
-            symbols = [s for s in markets 
-                      if '/USDT' in s 
-                      and markets[s].get('future')]
+            markets = await exchange.load_markets()
+            symbols = [
+                s for s in markets 
+                if '/USDT' in s 
+                and markets[s].get('future')
+                and markets[s].get('active')
+            ]
             
-            logging.info(f"🔍 {len(symbols)} futures pair taranıyor...")
+            logging.info(f"🔍 {len(symbols)} futures pair taranıyor (RSI 12)...")
             
-            alerts = 0
-            for symbol in symbols:
-                if await check_symbol(symbol):
-                    alerts += 1
+            # Semaphore ile paralel işlem
+            async def limited_check(symbol):
+                async with semaphore:
+                    return await check_symbol(symbol)
+            
+            # Tüm pair'leri tek seferde tara (cooldown yok)
+            results = await asyncio.gather(*[limited_check(s) for s in symbols])
+            alerts = sum(results)
             
             scan_time = time.time() - scan_start
             logging.info(f"✅ Tarama tamamlandı | {alerts} sinyal | {scan_time:.1f}s")
             
-            await asyncio.sleep(max(180 - scan_time, 60))  # 5 dakikada bir tarama
+            # 3 dakikalık döngü
+            sleep_time = max(180 - scan_time, 30)
+            await asyncio.sleep(sleep_time)
             
         except Exception as e:
             logging.error(f"⚠️ Sistem hatası: {str(e)}")
@@ -146,3 +154,4 @@ if __name__ == '__main__':
         asyncio.run(main_loop())
     except KeyboardInterrupt:
         logging.info("Bot kapatılıyor...")
+        
