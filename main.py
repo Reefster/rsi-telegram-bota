@@ -1,4 +1,3 @@
-
 import ccxt
 import pandas as pd
 import asyncio
@@ -78,16 +77,13 @@ async def scan(bot):
 
     for item in results:
         msg = (
-        
-    f"💰: ${item['symbol']}\n"
-    f"🔔: High🔴🔴 RSI Alert 85+\n"
-    f"RSI 5minute: {item['rsi_5m']:.2f}\n"
-    f"RSI 15minute: {item['rsi_15m']:.2f}\n"
-    f"RSI 1hour: {item['rsi_1h']:.2f}\n"
-    f"RSI 4hour: {item['rsi_4h']:.2f}\n"
-    f"Last Price: {item['price']:.7f}"
-
-
+            f"💰: ${item['symbol']}\n"
+            f"🔔: High🔴🔴 RSI Alert 85+\n"
+            f"RSI 5minute: {item['rsi_5m']:.2f}\n"
+            f"RSI 15minute: {item['rsi_15m']:.2f}\n"
+            f"RSI 1hour: {item['rsi_1h']:.2f}\n"
+            f"RSI 4hour: {item['rsi_4h']:.2f}\n"
+            f"Last Price: {item['price']:.7f}"
         )
         await bot.send_message(chat_id=CHAT_ID, text=msg)
 
@@ -95,21 +91,24 @@ async def handle_message(update: Update, context):
     if update.message.text.lower() == "deneme_876543":
         await update.message.reply_text("Bot çalışıyor ve RSI taraması aktif!")
 
-async def start_bot():
+async def scheduler(bot):
+    while True:
+        await scan(bot)
+        await asyncio.sleep(300)
+
+async def main():
     bot = Bot(token=TELEGRAM_TOKEN)
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    # Mesaj handler'ı ekle
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
-    async def background_loop():
-        while True:
-            await scan(bot)
-            await asyncio.sleep(300)
+    # Arka planda RSI tarayıcısını başlat
+    asyncio.create_task(scheduler(bot))
 
-    asyncio.create_task(background_loop())
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
-    await app.updater.idle()
 
 if __name__ == "__main__":
-    asyncio.run(start_bot())
+    asyncio.run(main())
