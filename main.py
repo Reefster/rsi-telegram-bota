@@ -19,15 +19,25 @@ exchange = ccxt.binance({
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Kara Liste: USDT hariç stablecoin bazlı coinleri taramadan çıkar
+STABLECOINS = [
+    "USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD",
+    "EUR", "EURT", "SUSD", "GUSD", "USTC"
+]
+
 def get_all_futures_symbols():
     markets = exchange.load_markets()
-    return [
-        symbol for symbol, market in markets.items()
-        if market.get('contract') 
-        and market.get('quote') == 'USDT' 
-        and market.get('active', True)
-    ]
-
+    symbols = []
+    for symbol, market in markets.items():
+        if (
+            market.get('contract')
+            and market.get('quote') == 'USDT'
+            and market.get('active', True)
+        ):
+            base = market['base']
+            if base not in STABLECOINS:
+                symbols.append(symbol)
+    return symbols
 
 def calculate_rsi(prices, period=14):
     deltas = pd.Series(prices).diff()
@@ -83,17 +93,18 @@ async def main_loop():
     while True:
         try:
             symbols = get_all_futures_symbols()
-            logging.info(f"{len(symbols)} adet coin taranacak...")
+            logging.info(f"{len(symbols)} coin taranacak (Stablecoin bazlılar hariç).")
 
             tasks = [check_symbol(symbol) for symbol in symbols]
             results = await asyncio.gather(*tasks)
             found = sum(results)
 
             logging.info(f"{found} sinyal bulundu. 1 dakika bekleniyor...\n")
-            await asyncio.sleep(60)  # 1 dakika bekleme
+            await asyncio.sleep(60)  # 1 dakikada bir tarama
         except Exception as e:
             logging.error(f"Ana döngü hatası: {str(e)}")
             await asyncio.sleep(60)
 
 if __name__ == '__main__':
     asyncio.run(main_loop())
+
