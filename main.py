@@ -31,13 +31,13 @@ logging.basicConfig(
 # Global Bot Instance
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# Parametreler (DEĞİŞEN KISIM)
-RSI_PERIOD = 12  # 14 yerine 12 yapıldı
+# Parametreler
+RSI_PERIOD = 12  # RSI 12 olarak ayarlandı
 OHLCV_LIMIT = 100
 API_DELAY = 0.4
 MAX_CONCURRENT = 8
 
-def calculate_rsi(prices, period=RSI_PERIOD):  # RSI 12 için güncellendi
+def calculate_rsi(prices, period=RSI_PERIOD):
     """RSI 12 hesaplama fonksiyonu"""
     deltas = pd.Series(prices).diff()
     gain = deltas.clip(lower=0)
@@ -74,7 +74,7 @@ async def fetch_ohlcv(symbol, timeframe):
         return None
 
 async def check_symbol(symbol):
-    """RSI koşullarını kontrol et (COOLDOWN KALDIRILDI)"""
+    """RSI koşullarını kontrol et (cooldown YOK)"""
     try:
         timeframes = ['5m', '15m', '1h', '4h']
         closes = await asyncio.gather(*[fetch_ohlcv(symbol, tf) for tf in timeframes])
@@ -88,11 +88,11 @@ async def check_symbol(symbol):
         }
         avg_all = mean(rsi_values.values())
         
-        # ORİJİNAL STRATEJİ KOŞULLARI (RSI 12 ile)
+        # ORİJİNAL KOŞULLAR (RSI 12 ile)
         if all([
-            rsi_values['5m'] >= 50,
-            rsi_values['15m'] >= 50,
-            avg_all >= 45
+            rsi_values['5m'] >= 90,
+            rsi_values['15m'] >= 90,
+            avg_all >= 85
         ]):
             message = (
                 f"🚀 *RSI-12 ALERT* 🚀\n"
@@ -108,7 +108,7 @@ async def check_symbol(symbol):
             return True
             
     except Exception as e:
-        logging.error(f"{symbol} işlem hatası: {str(e)}")
+        logging.error(f"{symbol} işlem hatası: {str(e)}", exc_info=True)
     return False
 
 async def main_loop():
@@ -119,7 +119,9 @@ async def main_loop():
     while True:
         scan_start = time.time()
         try:
-            markets = await exchange.load_markets()
+            # DÜZELTME: await kaldırıldı
+            markets = exchange.load_markets()
+            
             symbols = [
                 s for s in markets 
                 if '/USDT' in s 
@@ -127,14 +129,14 @@ async def main_loop():
                 and markets[s].get('active')
             ]
             
-            logging.info(f"🔍 {len(symbols)} futures pair taranıyor (RSI 12)...")
+            logging.info(f"🔍 {len(symbols)} futures pair taranıyor...")
             
             # Semaphore ile paralel işlem
             async def limited_check(symbol):
                 async with semaphore:
                     return await check_symbol(symbol)
             
-            # Tüm pair'leri tek seferde tara (cooldown yok)
+            # Tüm pair'leri tek seferde tara
             results = await asyncio.gather(*[limited_check(s) for s in symbols])
             alerts = sum(results)
             
@@ -146,7 +148,7 @@ async def main_loop():
             await asyncio.sleep(sleep_time)
             
         except Exception as e:
-            logging.error(f"⚠️ Sistem hatası: {str(e)}")
+            logging.error(f"⚠️ Sistem hatası: {str(e)}", exc_info=True)
             await asyncio.sleep(60)
 
 if __name__ == '__main__':
@@ -154,4 +156,5 @@ if __name__ == '__main__':
         asyncio.run(main_loop())
     except KeyboardInterrupt:
         logging.info("Bot kapatılıyor...")
-        
+    except Exception as e:
+        logging.error(f"Beklenmeyen hata: {str(e)}", exc_info=True)
