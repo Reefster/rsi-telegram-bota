@@ -19,38 +19,27 @@ exchange = ccxt.binance({
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Stabil coinler (büyük harfle)
+# Kara Liste - USDT HARİÇ Stablecoin isimleri
 STABLECOINS = [
-    "USDT", "USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD",
-    "EUR", "EURT", "SUSD", "GUSD", "USTC", "PAX", "HUSD"
+    "USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD",
+    "EUR", "EURT", "SUSD", "GUSD", "USTC"
 ]
 
 def get_all_futures_symbols():
     markets = exchange.load_markets()
     symbols = []
-    
     for symbol, market in markets.items():
-        try:
-            # Sadece USDT futures pair'leri ve aktif marketler
-            if (market.get('quote') == 'USDT' and 
-                market.get('contract') and 
-                market.get('active', True)):
-                
-                # Base asset kontrolü (stabil coin hariç)
-                base_asset = market['base']
-                if base_asset in STABLECOINS:
-                    continue
-                    
-                # Sembol adında stabil coin geçiyor mu kontrolü
-                if any(stable in symbol.upper() for stable in STABLECOINS):
-                    continue
-                    
-                symbols.append(symbol)
-                
-        except Exception as e:
-            logging.error(f"Market {symbol} kontrol hatası: {str(e)}")
-            continue
-            
+        if (
+            market.get('contract')
+            and market.get('quote') == 'USDT'
+            and market.get('active', True)
+        ):
+            base = market['base']
+            if base in STABLECOINS:
+                continue
+            if any(stable in symbol for stable in STABLECOINS):
+                continue
+            symbols.append(symbol)
     return symbols
 
 def calculate_rsi(prices, period=14):
@@ -106,14 +95,16 @@ async def main_loop():
     logging.info("Bot başlatıldı. RSI taraması başlıyor...")
     while True:
         try:
+            all_markets = exchange.load_markets()
+            all_symbols = [s for s in all_markets if all_markets[s].get('contract') and all_markets[s].get('quote') == 'USDT']
             symbols = get_all_futures_symbols()
-            logging.info(f"Taranacak coin sayısı: {len(symbols)}")
-            
+            logging.info(f"{len(symbols)} coin taranacak. {len(all_symbols) - len(symbols)} stabil coin bazlı coin dışlandı.")
+
             tasks = [check_symbol(symbol) for symbol in symbols]
             results = await asyncio.gather(*tasks)
             found = sum(results)
 
-            logging.info(f"Tarama tamamlandı. {found} sinyal bulundu. 1 dakika bekleniyor...\n")
+            logging.info(f"{found} sinyal bulundu. 1 dakika bekleniyor...\n")
             await asyncio.sleep(60)
         except Exception as e:
             logging.error(f"Ana döngü hatası: {str(e)}")
