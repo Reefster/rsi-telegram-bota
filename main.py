@@ -39,7 +39,10 @@ async def scan(bot):
         print("MARKET LOAD ERROR:", e)
         return
 
-    usdt_pairs = [s for s in markets if s.endswith('/USDT') and not s.endswith('BULL/USDT') and not s.endswith('BEAR/USDT')]
+    usdt_pairs = [
+        s for s in markets
+        if s.endswith('/USDT') and not s.endswith('BULL/USDT') and not s.endswith('BEAR/USDT')
+    ]
     results = []
 
     for symbol in usdt_pairs:
@@ -73,18 +76,23 @@ async def scan(bot):
         except:
             continue
 
-      for item in results:
+    for item in results:
         msg = (
-            f"💰: ${item['symbol']}\n"
-            f"🔔: High🔴🔴 RSI Alert 85+\n"
-            f"RSI 5minute: {item['rsi_5m']:.2f}\n"
-            f"RSI 15minute: {item['rsi_15m']:.2f}\n"
-            f"RSI 1hour: {item['rsi_1h']:.2f}\n"
-            f"RSI 4hour: {item['rsi_4h']:.2f}\n"
+            f"💰: ${item['symbol']}
+"
+            f"🔔: High🔴🔴 RSI Alert 85+
+"
+            f"RSI 5minute: {item['rsi_5m']:.2f}
+"
+            f"RSI 15minute: {item['rsi_15m']:.2f}
+"
+            f"RSI 1hour: {item['rsi_1h']:.2f}
+"
+            f"RSI 4hour: {item['rsi_4h']:.2f}
+"
             f"Last Price: {item['price']:.7f}"
         )
         await bot.send_message(chat_id=CHAT_ID, text=msg)
-
 
 async def handle_message(update: Update, context):
     if update.message.text.lower() == "deneme_876543":
@@ -108,4 +116,3 @@ async def start_bot():
 
 if __name__ == "__main__":
     asyncio.run(start_bot())
-
