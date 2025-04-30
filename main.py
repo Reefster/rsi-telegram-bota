@@ -96,7 +96,7 @@ async def check_symbol(symbol):
         rsi_values = {tf: calculate_rsi([x[4] for x in data]) for tf, data in timeframes.items()}
         avg_rsi = mean(rsi_values.values())
 
-        if rsi_values['5m'] >= 90 or rsi_values['15m'] >= 90 or avg_rsi >= 85:
+        if rsi_values['5m'] >= 30 or rsi_values['15m'] >= 30 or avg_rsi >= 25:
             symbol_clean = symbol.replace(':USDT', '').replace('/USDT', '')
             message = (
                 f"🚨 *RSI SİNYALİ* 🚨\n"
