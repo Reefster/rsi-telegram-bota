@@ -102,9 +102,9 @@ async def check_symbol(symbol):
         avg_all = mean(rsi_values.values())
 
         if all([
-            rsi_values['5m'] >= 90,
-            rsi_values['15m'] >= 90,
-            avg_all >= 85
+            rsi_values['5m'] >= 85,
+            rsi_values['15m'] >= 85,
+            avg_all >= 80
         ]):
             message = (
                 f"🚀 *RSI-12 ALERT* 🚀\n"
