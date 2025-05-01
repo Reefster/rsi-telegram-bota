@@ -1,6 +1,6 @@
 import ccxt
 import pandas as pd
-from telegram import Bot
+from telegram import Bot, error as telegram_error
 import logging
 from statistics import mean
 import asyncio
@@ -36,6 +36,7 @@ RSI_PERIOD = 12
 OHLCV_LIMIT = 50
 API_DELAY = 0.25
 MAX_CONCURRENT = 15
+TELEGRAM_TIMEOUT = 10  # Telegram timeout süresi (saniye)
 
 def calculate_rsi(prices, period=RSI_PERIOD):
     """RSI 12 hesaplama"""
@@ -50,16 +51,26 @@ def calculate_rsi(prices, period=RSI_PERIOD):
     return 100 - (100 / (1 + rs)).iloc[-1]
 
 async def send_telegram_alert(message):
-    """Telegram mesaj gönder"""
+    """Geliştirilmiş Telegram mesaj gönderim fonksiyonu"""
     try:
         await bot.send_message(
             chat_id=CHAT_ID,
             text=message,
             parse_mode='Markdown',
-            disable_web_page_preview=True
+            disable_web_page_preview=True,
+            read_timeout=TELEGRAM_TIMEOUT,
+            write_timeout=TELEGRAM_TIMEOUT,
+            connect_timeout=TELEGRAM_TIMEOUT,
+            pool_timeout=TELEGRAM_TIMEOUT
         )
-        await asyncio.sleep(1.5)
-        logging.info("Telegram mesajı gönderildi")
+        logging.info("Telegram mesajı başarıyla gönderildi")
+        await asyncio.sleep(1.5)  # Rate limit koruması
+    except telegram_error.TimedOut:
+        logging.warning("Telegram timeout hatası - Mesaj gönderilemedi")
+    except telegram_error.RetryAfter as e:
+        wait_time = e.retry_after + 2
+        logging.warning(f"Rate limit aşıldı. {wait_time} saniye bekleniyor...")
+        await asyncio.sleep(wait_time)
     except Exception as e:
         logging.error(f"Telegram hatası: {str(e)}")
 
