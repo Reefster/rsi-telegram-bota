@@ -6,20 +6,20 @@ from statistics import mean
 import asyncio
 import time
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Optional
 
-# Telegram Settings
+# Telegram Ayarları
 TELEGRAM_TOKEN = '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'
 CHAT_ID = '6333148344'
 
-# Binance API Settings
+# Binance API Ayarları
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'future'},
     'timeout': 30000
 })
 
-# Logging Settings
+# Logging Ayarları
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -32,16 +32,16 @@ logging.basicConfig(
 # Global Bot Instance
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# Parameters
+# Parametreler
 RSI_PERIOD = 12
 OHLCV_LIMIT = 50
-API_DELAY = 0.5  # Increased delay for better rate limiting
-MAX_CONCURRENT = 10  # Reduced concurrent requests
-TELEGRAM_TIMEOUT = 30  # Increased Telegram timeout
-MAX_RETRIES = 3  # Max retries for Telegram messages
+API_DELAY = 0.5
+MAX_CONCURRENT = 10
+TELEGRAM_TIMEOUT = 30
+MAX_RETRIES = 3
 
 async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
-    """Improved Telegram message sending with retry mechanism"""
+    """Geliştirilmiş Telegram mesaj gönderim fonksiyonu"""
     try:
         await bot.send_message(
             chat_id=CHAT_ID,
@@ -53,45 +53,45 @@ async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
             connect_timeout=TELEGRAM_TIMEOUT,
             pool_timeout=TELEGRAM_TIMEOUT
         )
-        logging.info("Telegram message sent successfully")
-        await asyncio.sleep(2)  # Rate limit protection
+        logging.info("Telegram mesajı başarıyla gönderildi")
+        await asyncio.sleep(2)  # Rate limit koruması
         return True
     except telegram_error.TimedOut:
         if retry_count < MAX_RETRIES:
-            logging.warning(f"Telegram timeout, retrying... ({retry_count + 1}/{MAX_RETRIES})")
+            logging.warning(f"Telegram timeout, yeniden deniyor... ({retry_count + 1}/{MAX_RETRIES})")
             await asyncio.sleep(5)
             return await send_telegram_alert(message, retry_count + 1)
-        logging.error("Failed to send Telegram message after retries")
+        logging.error("Telegram mesajı gönderilemedi (max retry)")
         return False
     except telegram_error.RetryAfter as e:
         wait_time = e.retry_after + 2
-        logging.warning(f"Rate limit exceeded. Waiting {wait_time} seconds...")
+        logging.warning(f"Rate limit aşıldı. {wait_time} saniye bekleniyor...")
         await asyncio.sleep(wait_time)
         return await send_telegram_alert(message, retry_count)
     except Exception as e:
-        logging.error(f"Telegram error: {str(e)}")
+        logging.error(f"Telegram hatası: {str(e)}")
         return False
 
 async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Optional[List[float]]:
-    """Fetch OHLCV data with retry mechanism"""
+    """OHLCV verisi çekme (yeniden deneme mekanizmalı)"""
     try:
         data = exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
         await asyncio.sleep(API_DELAY)
         return [x[4] for x in data] if data else None
     except ccxt.NetworkError as e:
-        if retry_count < 2:  # Max 2 retries for network errors
+        if retry_count < 2:
             wait_time = 5 * (retry_count + 1)
-            logging.warning(f"Network error for {symbol} {timeframe}, retrying in {wait_time}s...")
+            logging.warning(f"{symbol} {timeframe} ağ hatası, {wait_time}s sonra yeniden denenecek...")
             await asyncio.sleep(wait_time)
             return await fetch_ohlcv(symbol, timeframe, retry_count + 1)
-        logging.error(f"Failed to fetch data for {symbol} {timeframe}: {str(e)}")
+        logging.error(f"{symbol} {timeframe} veri çekilemedi: {str(e)}")
         return None
     except Exception as e:
-        logging.error(f"Error fetching {symbol} {timeframe}: {str(e)}")
+        logging.error(f"{symbol} {timeframe} bilinmeyen hata: {str(e)}")
         return None
 
 def calculate_rsi(prices: List[float], period: int = RSI_PERIOD) -> float:
-    """Optimized RSI calculation"""
+    """Optimize RSI hesaplama"""
     if len(prices) < period:
         return 50.0
     
@@ -109,14 +109,14 @@ def calculate_rsi(prices: List[float], period: int = RSI_PERIOD) -> float:
     return 100.0 - (100.0 / (1.0 + rs))
 
 async def check_symbol(symbol: str) -> bool:
-    """Check RSI conditions for a symbol"""
+    """Bir sembol için RSI koşullarını kontrol et"""
     try:
         timeframes = ['5m', '15m', '1h', '4h']
         closes = []
         
         for tf in timeframes:
             data = await fetch_ohlcv(symbol, tf)
-            if data is None:
+            if data is None or len(data) < RSI_PERIOD:
                 return False
             closes.append(data)
 
@@ -125,7 +125,6 @@ async def check_symbol(symbol: str) -> bool:
             for tf, prices in zip(timeframes, closes)
         }
         
-        # Calculate average RSI excluding 4h timeframe for more sensitivity
         avg_rsi = mean([rsi_values['5m'], rsi_values['15m'], rsi_values['1h']])
         
         if all([
@@ -146,11 +145,11 @@ async def check_symbol(symbol: str) -> bool:
             return True
 
     except Exception as e:
-        logging.error(f"Error processing {symbol}: {str(e)}", exc_info=True)
+        logging.error(f"{symbol} işlenirken hata: {str(e)}", exc_info=True)
     return False
 
 async def process_batch(symbols: List[str]) -> int:
-    """Process a batch of symbols with limited concurrency"""
+    """Toplu sembol işleme"""
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
     
     async def limited_check(symbol: str) -> bool:
@@ -161,14 +160,13 @@ async def process_batch(symbols: List[str]) -> int:
     return sum(results)
 
 async def main_loop():
-    """Main processing loop"""
-    logging.info("⚡ Binance Futures RSI-12 Bot Started")
+    """Ana işlem döngüsü"""
+    logging.info("⚡ Binance Futures RSI-12 Bot Başlatıldı")
     
     while True:
         scan_start = time.time()
         try:
             markets = exchange.load_markets()
-            # Filter only active USDT futures markets
             symbols = [
                 s for s in markets
                 if '/USDT' in s
@@ -177,34 +175,37 @@ async def main_loop():
                 and markets[s].get('active', False)
             ]
             
-            # Prioritize high-volume symbols
-            symbols = sorted(symbols, key=lambda x: markets[x]['info']['volume24h'], reverse=True)
+            # Sembolleri rastgele karıştır (dengeli dağılım için)
+            import random
+            random.shuffle(symbols)
             
-            logging.info(f"🔍 Scanning {len(symbols)} coins. Top 5: {symbols[:5]}")
+            logging.info(f"🔍 {len(symbols)} coin taranıyor. Örnekler: {symbols[:5]}...")
             
-            # Process in batches to avoid rate limits
-            batch_size = 50
             alerts = 0
+            batch_size = 50
             for i in range(0, len(symbols), batch_size):
                 batch = symbols[i:i + batch_size]
                 alerts += await process_batch(batch)
-                await asyncio.sleep(5)  # Brief pause between batches
+                if i + batch_size < len(symbols):
+                    await asyncio.sleep(5)  # Batch'ler arası bekleme
             
             scan_time = time.time() - scan_start
-            logging.info(f"✅ Scan completed | {alerts} signals | {scan_time:.2f}s")
+            logging.info(f"✅ Tarama tamamlandı | {alerts} sinyal | {scan_time:.2f}s")
             
-            # Dynamic sleep based on scan time (minimum 60 seconds)
             sleep_time = max(120 - scan_time, 60)
             await asyncio.sleep(sleep_time)
             
+        except ccxt.BaseError as e:
+            logging.error(f"Binance API hatası: {str(e)}")
+            await asyncio.sleep(60)
         except Exception as e:
-            logging.error(f"⚠️ System error: {str(e)}", exc_info=True)
+            logging.error(f"Beklenmeyen hata: {str(e)}", exc_info=True)
             await asyncio.sleep(60)
 
 if __name__ == '__main__':
     try:
         asyncio.run(main_loop())
     except KeyboardInterrupt:
-        logging.info("⛔ Bot stopped by user")
+        logging.info("⛔ Bot kullanıcı tarafından durduruldu")
     except Exception as e:
-        logging.error(f"Fatal error: {str(e)}", exc_info=True)
+        logging.error(f"Kritik hata: {str(e)}", exc_info=True)
