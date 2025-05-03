@@ -10,8 +10,8 @@ import random
 from typing import List, Optional
 
 # Telegram Ayarları
-TELEGRAM_TOKEN = '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'
-CHAT_ID = '6333148344'
+TELEGRAM_TOKEN = '7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4'
+CHAT_ID = '2123083924'
 
 # Binance API Ayarları
 exchange = ccxt.binance({
