@@ -5,8 +5,8 @@ import math
 from ta.momentum import RSIIndicator
 
 # === Telegram Bilgileri ===
-BOT_TOKEN = "bot_tokeni"
-CHAT_ID = "Chat Ä±d"
+BOT_TOKEN = "7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4"
+CHAT_ID = "2123083924"
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -57,9 +57,9 @@ def calculate_rsi(symbol):
     avg_rsi = sum(rsi_values.values()) / len(rsi_values)
     return rsi_values, round(avg_rsi, 2)
 
-# === Ana Tarama DÃ¶ngÃ¼sÃ¼ ===
+# === Ana Tarama Döngüsü ===
 while True:
-    print("\nðŸ” Yeni tarama baÅŸlatÄ±lÄ±yor...\n")
+    print("\n🔍 Yeni tarama başlatılıyor...\n")
     usdt_pairs = get_usdt_pairs()
 
     for symbol in usdt_pairs:
@@ -70,7 +70,7 @@ while True:
                 price = get_klines(symbol, '5m').iloc[-1]['close']
 
                 message = (
-                    f"ðŸ“Š RSI Bilgilendirme: {symbol}\n\n"
+                    f"📊 RSI Bilgilendirme: {symbol}\n\n"
                     f"RSI 5m: {rsi_vals['5m']:.2f}\n"
                     f"RSI 15m: {rsi_vals['15m']:.2f}\n"
                     f"RSI 1h: {rsi_vals['1h']:.2f}\n"
@@ -81,4 +81,4 @@ while True:
 
                 response = send_telegram_message(message)
                 if response.status_code == 200:
-                    print(f"âœ… GÃ¶nderildi: {symbol}")
+                    print(f"✅ Gönderildi: {symbol}")
