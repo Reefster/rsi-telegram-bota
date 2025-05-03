@@ -79,6 +79,12 @@ while True:
                     f"Fiyat: {price:.5f}"
                 )
 
-                response = send_telegram_message(message)
-                if response.status_code == 200:
-                    print(f"✅ Gönderildi: {symbol}")
+                try:
+                    response = send_telegram_message(message)
+                    if response.status_code == 200:
+                        print(f"✅ Gönderildi: {symbol}")
+                except Exception as e:
+                    print(f"Telegram gönderim hatası: {e}")
+
+        except Exception as e:
+            print(f"Hata {symbol}: {e}")
