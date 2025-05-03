@@ -82,7 +82,7 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
     try:
         data = exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
         await asyncio.sleep(API_DELAY)
-        return [x[4] for x in data] if data else None
+        return data if data else None
     except ccxt.NetworkError:
         if retry_count < 2:
             await asyncio.sleep(5 * (retry_count + 1))
@@ -105,40 +105,55 @@ def calculate_rsi(prices: List[float]) -> float:
     
     return 100 - (100 / (1 + (avg_gain / avg_loss))) if avg_loss != 0 else 100
 
+async def get_last_price(symbol: str) -> float:
+    """Son fiyat bilgisini al"""
+    try:
+        ticker = exchange.fetch_ticker(symbol)
+        return float(ticker['last'])
+    except Exception:
+        return 0.0
+
 async def check_symbol(symbol: str) -> bool:
     """Sembol kontrolü"""
     try:
         timeframes = ['5m', '15m', '1h', '4h']
-        closes = []
+        ohlcv_data = []
         
         for tf in timeframes:
             data = await fetch_ohlcv(symbol, tf)
             if not data or len(data) < RSI_PERIOD:
                 return False
-            closes.append(data)
+            ohlcv_data.append(data)
 
+        # RSI hesaplamaları
         rsi_values = {
-            tf: calculate_rsi(prices)
-            for tf, prices in zip(timeframes, closes)
+            tf: calculate_rsi([x[4] for x in data])
+            for tf, data in zip(timeframes, ohlcv_data)
         }
         
+        # Son fiyat bilgisi
+        last_price = await get_last_price(symbol)
+        
         if all([
-            rsi_values['5m'] >= 40,
-            rsi_values['15m'] >= 40,
-            mean([rsi_values['5m'], rsi_values['15m'], rsi_values['1h']]) >= 35
+            rsi_values['5m'] >= 85,
+            rsi_values['15m'] >= 85,
+            mean([rsi_values['5m'], rsi_values['15m'], rsi_values['1h']]) >= 80
         ]):
+            clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '')
             message = (
-                f"🚀 *RSI-12 ALERT* 🚀\n"
-                f"📈 *Pair*: `{symbol.replace('/USDT:USDT', '').replace('/USDT', '')}`\n"
-                f"• 5m RSI: `{rsi_values['5m']:.2f}`\n"
-                f"• 15m RSI: `{rsi_values['15m']:.2f}`\n"
-                f"• 1h RSI: `{rsi_values['1h']:.2f}`\n"
-                f"• 4h RSI: `{rsi_values['4h']:.2f}`\n"
-                f"⏱ `{datetime.now().strftime('%H:%M:%S')}`"
+                f"💰: {clean_symbol}.P\n"
+                f"🔔: High🔴🔴 RSI Alert +85\n"
+                f"RSI 5minute: {rsi_values['5m']:.2f}\n"
+                f"RSI 15minute: {rsi_values['15m']:.2f}\n"
+                f"RSI 1hour: {rsi_values['1h']:.2f}\n"
+                f"RSI 4hour: {rsi_values['4h']:.2f}\n"
+                f"Last Price: {last_price:.5f}\n"
+                f"ScalpingPA"
             )
             await send_telegram_alert(message)
             return True
-    except Exception:
+    except Exception as e:
+        logging.error(f"Hata oluştu: {str(e)}")
         pass
     return False
 
@@ -167,10 +182,10 @@ async def main_loop():
                 and markets[s].get('contract')
                 and markets[s].get('linear')
                 and markets[s].get('active')
-                and s not in STABLECOIN_BLACKLIST  # Blacklist kontrolü
+                and s not in STABLECOIN_BLACKLIST
             ]
             
-            random.shuffle(symbols)  # Rastgele karıştır
+            random.shuffle(symbols)
             
             logging.info(f"🔍 {len(symbols)} coin taranıyor (Blacklist: {len(STABLECOIN_BLACKLIST)} coin filtrelendi)...")
             
