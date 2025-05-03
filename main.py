@@ -141,7 +141,7 @@ async def check_symbol(symbol: str) -> bool:
         ]):
             clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '')
             message = (
-                f"💰: {clean_symbol}.P\n"
+                f"💰: {clean_symbol}USDT.P\n"
                 f"🔔: High🔴🔴 RSI Alert +85\n"
                 f"RSI 5minute: {rsi_values['5m']:.2f}\n"
                 f"RSI 15minute: {rsi_values['15m']:.2f}\n"
