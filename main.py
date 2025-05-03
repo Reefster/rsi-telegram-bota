@@ -123,9 +123,9 @@ async def check_symbol(symbol: str) -> bool:
         }
         
         if all([
-            rsi_values['5m'] >= 85,
-            rsi_values['15m'] >= 85,
-            mean([rsi_values['5m'], rsi_values['15m'], rsi_values['1h']]) >= 80
+            rsi_values['5m'] >= 40,
+            rsi_values['15m'] >= 40,
+            mean([rsi_values['5m'], rsi_values['15m'], rsi_values['1h']]) >= 35
         ]):
             message = (
                 f"🚀 *RSI-12 ALERT* 🚀\n"
