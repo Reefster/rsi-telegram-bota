@@ -135,9 +135,9 @@ async def check_symbol(symbol: str) -> bool:
         last_price = await get_last_price(symbol)
         
         if all([
-            rsi_values['5m'] >= 40,
-            rsi_values['15m'] >= 40,
-            mean([rsi_values['5m'], rsi_values['15m'], rsi_values['1h']]) >= 35
+            rsi_values['5m'] >= 87,
+            rsi_values['15m'] >= 47,
+            mean([rsi_values['5m'], rsi_values['15m'], rsi_values['1h']]) >= 82
         ]):
             clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '')
             message = (
