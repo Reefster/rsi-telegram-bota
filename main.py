@@ -9,12 +9,16 @@ from datetime import datetime
 import random
 from typing import List, Optional
 
-from telegram import Bot
-
 # === Telegram Ayarları ===
 TELEGRAM_BOTS = [
-    {\"bot\": Bot(token='7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'), \"chat_id\": '6333148344'},
-    {\"bot\": Bot(token='7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4'), \"chat_id\": '-1002565394717'}
+    {
+        'token': '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc',
+        'chat_id': '6333148344'
+    },
+    {
+        'token': '7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4',
+        'chat_id': '-1002565394717'
+    }
 ]
 
 # === Binance API ===
@@ -34,10 +38,8 @@ logging.basicConfig(
     ]
 )
 
-bot = Bot(token=TELEGRAM_TOKEN)
-
 # === Parametreler ===
-RSI_PERIOD = 14
+RSI_PERIOD = 12
 OHLCV_LIMIT = 20
 API_DELAY = 0.3
 MAX_CONCURRENT = 5
@@ -52,12 +54,12 @@ STABLECOIN_BLACKLIST = [
 ]
 
 async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
-    try:
-        for entry in TELEGRAM_BOTS:
-            bot_instance = entry[\"bot\"]
-            chat_id = entry[\"chat_id\"]
-            await bot_instance.send_message(
-                chat_id=chat_id,
+    success = True
+    for bot_info in TELEGRAM_BOTS:
+        try:
+            bot = Bot(token=bot_info['token'])
+            await bot.send_message(
+                chat_id=bot_info['chat_id'],
                 text=message,
                 parse_mode='Markdown',
                 disable_web_page_preview=True,
@@ -66,20 +68,20 @@ async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
                 connect_timeout=TELEGRAM_TIMEOUT,
                 pool_timeout=TELEGRAM_TIMEOUT
             )
-            logging.info(f\"Telegram mesajı gönderildi: {chat_id}\")
-            await asyncio.sleep(2)
-        return True
-    except telegram_error.TimedOut:
-        if retry_count < MAX_RETRIES:
-            await asyncio.sleep(5)
-            return await send_telegram_alert(message, retry_count + 1)
-        return False
-    except telegram_error.RetryAfter as e:
-        await asyncio.sleep(e.retry_after + 2)
-        return await send_telegram_alert(message, retry_count)
-    except Exception as e:
-        logging.error(f\"Telegram hatası: {str(e)}\")
-        return False
+            logging.info(f"Telegram mesajı gönderildi -> {bot_info['chat_id']}")
+            await asyncio.sleep(1)
+        except telegram_error.TimedOut:
+            if retry_count < MAX_RETRIES:
+                await asyncio.sleep(5)
+                return await send_telegram_alert(message, retry_count + 1)
+            success = False
+        except telegram_error.RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 2)
+            return await send_telegram_alert(message, retry_count)
+        except Exception as e:
+            logging.error(f"Telegram hatası ({bot_info['chat_id']}): {str(e)}")
+            success = False
+    return success
 
 async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Optional[List[float]]:
     try:
@@ -113,51 +115,41 @@ async def get_last_price(symbol: str) -> float:
 
 async def check_symbol(symbol: str) -> bool:
     try:
-        # Ön kontrol: Koşulları sağlıyor mu?
-        data_5m_check = await fetch_ohlcv(symbol, "5m")
-        if not data_5m_check or len(data_5m_check) < RSI_PERIOD:
+        data_5m = await fetch_ohlcv(symbol, "5m")
+        if not data_5m or len(data_5m) < RSI_PERIOD:
             return False
-        rsi_5m_check = calculate_rsi([x[4] for x in data_5m_check])
-        if rsi_5m_check < 89:
-            return False
-
-        data_15m_check = await fetch_ohlcv(symbol, "15m")
-        if not data_15m_check or len(data_15m_check) < RSI_PERIOD:
-            return False
-        rsi_15m_check = calculate_rsi([x[4] for x in data_15m_check])
-        if rsi_15m_check < 89:
+        rsi_5m = calculate_rsi([x[4] for x in data_5m])
+        if rsi_5m < 89:
             return False
 
-        data_1h_check = await fetch_ohlcv(symbol, "1h")
-        data_4h_check = await fetch_ohlcv(symbol, "4h")
-        if not data_1h_check or not data_4h_check:
+        data_15m = await fetch_ohlcv(symbol, "15m")
+        if not data_15m or len(data_15m) < RSI_PERIOD:
             return False
-        rsi_1h_check = calculate_rsi([x[4] for x in data_1h_check])
-        rsi_4h_check = calculate_rsi([x[4] for x in data_4h_check])
-        rsi_avg = mean([rsi_5m_check, rsi_15m_check, rsi_1h_check, rsi_4h_check])
+        rsi_15m = calculate_rsi([x[4] for x in data_15m])
+        if rsi_15m < 89:
+            return False
+
+        data_1h = await fetch_ohlcv(symbol, "1h")
+        data_4h = await fetch_ohlcv(symbol, "4h")
+        if not data_1h or not data_4h:
+            return False
+        rsi_1h = calculate_rsi([x[4] for x in data_1h])
+        rsi_4h = calculate_rsi([x[4] for x in data_4h])
+
+        rsi_avg = mean([rsi_5m, rsi_15m, rsi_1h, rsi_4h])
         if rsi_avg < 85:
             return False
 
-        # Güncel RSI verileriyle mesaj hazırla
-        data_5m = await fetch_ohlcv(symbol, "5m")
-        data_15m = await fetch_ohlcv(symbol, "15m")
-        data_1h = await fetch_ohlcv(symbol, "1h")
-        data_4h = await fetch_ohlcv(symbol, "4h")
-
-        rsi_5m = calculate_rsi([x[4] for x in data_5m])
-        rsi_15m = calculate_rsi([x[4] for x in data_15m])
-        rsi_1h = calculate_rsi([x[4] for x in data_1h])
-        rsi_4h = calculate_rsi([x[4] for x in data_4h])
         last_price = await get_last_price(symbol)
         clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '')
 
         message = (
             f"💰: {clean_symbol}USDT.P\n"
             f"🔔: High🔴🔴 RSI Alert +85\n"
-            f"RSI 5m: {rsi_5m:.2f}\n"
-            f"RSI 15m: {rsi_15m:.2f}\n"
-            f"RSI 1h: {rsi_1h:.2f}\n"
-            f"RSI 4h: {rsi_4h:.2f}\n"
+            f"RSI 5minute: {rsi_5m:.2f}\n"
+            f"RSI 15minute: {rsi_15m:.2f}\n"
+            f"RSI 1hour: {rsi_1h:.2f}\n"
+            f"RSI 4hour: {rsi_4h:.2f}\n"
             f"Last Price: {last_price:.5f}\n"
             f"ScalpingPA"
         )
