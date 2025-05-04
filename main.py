@@ -106,45 +106,51 @@ async def get_last_price(symbol: str) -> float:
 
 async def check_symbol(symbol: str) -> bool:
     try:
-        data_5m = await fetch_ohlcv(symbol, "5m")
-        if not data_5m or len(data_5m) < RSI_PERIOD:
+        # Ön kontrol: Koşulları sağlıyor mu?
+        data_5m_check = await fetch_ohlcv(symbol, "5m")
+        if not data_5m_check or len(data_5m_check) < RSI_PERIOD:
             return False
-        rsi_5m = calculate_rsi([x[4] for x in data_5m])
-        close_5m = data_5m[-1][4]
-        if rsi_5m < 89:
-            return False
-
-        data_15m = await fetch_ohlcv(symbol, "15m")
-        if not data_15m or len(data_15m) < RSI_PERIOD:
-            return False
-        rsi_15m = calculate_rsi([x[4] for x in data_15m])
-        close_15m = data_15m[-1][4]
-        if rsi_15m < 89:
+        rsi_5m_check = calculate_rsi([x[4] for x in data_5m_check])
+        if rsi_5m_check < 89:
             return False
 
-        data_1h = await fetch_ohlcv(symbol, "1h")
-        data_4h = await fetch_ohlcv(symbol, "4h")
-        if not data_1h or not data_4h:
+        data_15m_check = await fetch_ohlcv(symbol, "15m")
+        if not data_15m_check or len(data_15m_check) < RSI_PERIOD:
             return False
-        rsi_1h = calculate_rsi([x[4] for x in data_1h])
-        rsi_4h = calculate_rsi([x[4] for x in data_4h])
-        close_1h = data_1h[-1][4]
-        close_4h = data_4h[-1][4]
+        rsi_15m_check = calculate_rsi([x[4] for x in data_15m_check])
+        if rsi_15m_check < 89:
+            return False
 
-        rsi_avg = mean([rsi_5m, rsi_15m, rsi_1h, rsi_4h])
+        data_1h_check = await fetch_ohlcv(symbol, "1h")
+        data_4h_check = await fetch_ohlcv(symbol, "4h")
+        if not data_1h_check or not data_4h_check:
+            return False
+        rsi_1h_check = calculate_rsi([x[4] for x in data_1h_check])
+        rsi_4h_check = calculate_rsi([x[4] for x in data_4h_check])
+        rsi_avg = mean([rsi_5m_check, rsi_15m_check, rsi_1h_check, rsi_4h_check])
         if rsi_avg < 85:
             return False
 
+        # Güncel RSI verileriyle mesaj hazırla
+        data_5m = await fetch_ohlcv(symbol, "5m")
+        data_15m = await fetch_ohlcv(symbol, "15m")
+        data_1h = await fetch_ohlcv(symbol, "1h")
+        data_4h = await fetch_ohlcv(symbol, "4h")
+
+        rsi_5m = calculate_rsi([x[4] for x in data_5m])
+        rsi_15m = calculate_rsi([x[4] for x in data_15m])
+        rsi_1h = calculate_rsi([x[4] for x in data_1h])
+        rsi_4h = calculate_rsi([x[4] for x in data_4h])
         last_price = await get_last_price(symbol)
         clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '')
 
         message = (
             f"💰: {clean_symbol}USDT.P\n"
             f"🔔: High🔴🔴 RSI Alert +85\n"
-            f"RSI 5m: {rsi_5m:.2f} | Close: {close_5m:.5f}\n"
-            f"RSI 15m: {rsi_15m:.2f} | Close: {close_15m:.5f}\n"
-            f"RSI 1h: {rsi_1h:.2f} | Close: {close_1h:.5f}\n"
-            f"RSI 4h: {rsi_4h:.2f} | Close: {close_4h:.5f}\n"
+            f"RSI 5m: {rsi_5m:.2f}\n"
+            f"RSI 15m: {rsi_15m:.2f}\n"
+            f"RSI 1h: {rsi_1h:.2f}\n"
+            f"RSI 4h: {rsi_4h:.2f}\n"
             f"Last Price: {last_price:.5f}\n"
             f"ScalpingPA"
         )
