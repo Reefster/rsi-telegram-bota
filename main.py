@@ -1,217 +1,90 @@
-import ccxt
+import requests
 import pandas as pd
-from telegram import Bot, error as telegram_error
-import logging
-from statistics import mean
-import asyncio
 import time
-from datetime import datetime
-import random
-from typing import List, Optional
+import math
+from ta.momentum import RSIIndicator
 
-# Telegram Ayarları
-TELEGRAM_TOKEN = '7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4'
-CHAT_ID = '2123083924'
+# === Telegram Bilgileri ===
+BOT_TOKEN = "7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4"
+CHAT_ID = "2123083924"
 
-# Binance API Ayarları
-exchange = ccxt.binance({
-    'enableRateLimit': True,
-    'options': {'defaultType': 'future'},
-    'timeout': 30000
-})
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = {"chat_id": CHAT_ID, "text": message}
+    response = requests.post(url, data=data)
+    return response
 
-# Logging Ayarları
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('rsi_bot.log')
-    ]
-)
+def get_usdt_pairs():
+    url = "https://api.binance.com/api/v3/exchangeInfo"
+    response = requests.get(url)
+    data = response.json()
+    usdt_pairs = []
+    blacklist = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "USTC", "EURS", "PAX", "USDT"]
+    for symbol in data["symbols"]:
+        if symbol["quoteAsset"] == "USDT" and symbol["status"] == "TRADING":
+            base = symbol["baseAsset"]
+            if base not in blacklist:
+                usdt_pairs.append(symbol["symbol"])
+    return usdt_pairs
 
-# Global Bot Instance
-bot = Bot(token=TELEGRAM_TOKEN)
+def get_klines(symbol, interval, limit=100):
+    url = f"https://api.binance.com/api/v3/klines"
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    response = requests.get(url, params=params)
+    data = response.json()
+    df = pd.DataFrame(data, columns=[
+        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+        'close_time', 'quote_asset_volume', 'number_of_trades',
+        'taker_buy_base_volume', 'taker_buy_quote_volume', 'ignore'
+    ])
+    df['close'] = pd.to_numeric(df['close'])
+    return df
 
-# Parametreler
-RSI_PERIOD = 12
-OHLCV_LIMIT = 50
-API_DELAY = 0.5
-MAX_CONCURRENT = 10
-TELEGRAM_TIMEOUT = 30
-MAX_RETRIES = 3
+def calculate_rsi(symbol):
+    intervals = ['5m', '15m', '1h', '4h']
+    rsi_values = {}
 
-# Stabil Coin Blacklist (USDT çiftleri)
-STABLECOIN_BLACKLIST = [
-    'USDC/USDT', 'BUSD/USDT', 'DAI/USDT', 'TUSD/USDT', 'PAX/USDT',
-    'UST/USDT', 'EUR/USDT', 'GBP/USDT', 'JPY/USDT', 'AUD/USDT',
-    'BTC/USDT', 'ETH/USDT'
-]
+    for interval in intervals:
+        df = get_klines(symbol, interval)
+        if df.empty:
+            return None
+        rsi = RSIIndicator(close=df['close'], window=14).rsi()
+        rsi_value = rsi.iloc[-1]
+        if math.isnan(rsi_value):
+            return None
+        rsi_values[interval] = rsi_value
 
-async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
-    """Geliştirilmiş Telegram mesaj gönderim fonksiyonu"""
-    try:
-        await bot.send_message(
-            chat_id=CHAT_ID,
-            text=message,
-            parse_mode='Markdown',
-            disable_web_page_preview=True,
-            read_timeout=TELEGRAM_TIMEOUT,
-            write_timeout=TELEGRAM_TIMEOUT,
-            connect_timeout=TELEGRAM_TIMEOUT,
-            pool_timeout=TELEGRAM_TIMEOUT
-        )
-        logging.info("Telegram mesajı başarıyla gönderildi")
-        await asyncio.sleep(2)
-        return True
-    except telegram_error.TimedOut:
-        if retry_count < MAX_RETRIES:
-            await asyncio.sleep(5)
-            return await send_telegram_alert(message, retry_count + 1)
-        logging.error("Telegram mesajı gönderilemedi (max retry)")
-        return False
-    except telegram_error.RetryAfter as e:
-        await asyncio.sleep(e.retry_after + 2)
-        return await send_telegram_alert(message, retry_count)
-    except Exception as e:
-        logging.error(f"Telegram hatası: {str(e)}")
-        return False
+    avg_rsi = sum(rsi_values.values()) / len(rsi_values)
+    return rsi_values, round(avg_rsi, 2)
 
-async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Optional[List[float]]:
-    """OHLCV verisi çekme"""
-    try:
-        data = exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
-        await asyncio.sleep(API_DELAY)
-        return data if data else None
-    except ccxt.NetworkError:
-        if retry_count < 2:
-            await asyncio.sleep(5 * (retry_count + 1))
-            return await fetch_ohlcv(symbol, timeframe, retry_count + 1)
-        return None
-    except Exception:
-        return None
+# === Ana Tarama Döngüsü ===
+while True:
+    print("\n🔍 Yeni tarama başlatılıyor...\n")
+    usdt_pairs = get_usdt_pairs()
 
-def calculate_rsi(prices: List[float]) -> float:
-    """Optimize RSI hesaplama"""
-    if len(prices) < RSI_PERIOD:
-        return 50.0
-    
-    deltas = pd.Series(prices).diff()
-    gain = deltas.clip(lower=0)
-    loss = -deltas.clip(upper=0)
-    
-    avg_gain = gain.ewm(alpha=1/RSI_PERIOD, adjust=False).mean().iloc[-1]
-    avg_loss = loss.ewm(alpha=1/RSI_PERIOD, adjust=False).mean().iloc[-1]
-    
-    return 100 - (100 / (1 + (avg_gain / avg_loss))) if avg_loss != 0 else 100
-
-async def get_last_price(symbol: str) -> float:
-    """Son fiyat bilgisini al"""
-    try:
-        ticker = exchange.fetch_ticker(symbol)
-        return float(ticker['last'])
-    except Exception:
-        return 0.0
-
-async def check_symbol(symbol: str) -> bool:
-    """Sembol kontrolü"""
-    try:
-        timeframes = ['5m', '15m', '1h', '4h']
-        ohlcv_data = []
-        
-        for tf in timeframes:
-            data = await fetch_ohlcv(symbol, tf)
-            if not data or len(data) < RSI_PERIOD:
-                return False
-            ohlcv_data.append(data)
-
-        # RSI hesaplamaları
-        rsi_values = {
-            tf: calculate_rsi([x[4] for x in data])
-            for tf, data in zip(timeframes, ohlcv_data)
-        }
-        
-        # Son fiyat bilgisi
-        last_price = await get_last_price(symbol)
-        
-        if all([
-            rsi_values['5m'] >= 87,
-            rsi_values['15m'] >= 47,
-            mean([rsi_values['5m'], rsi_values['15m'], rsi_values['1h']]) >= 82
-        ]):
-            clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '')
-            message = (
-                f"💰: {clean_symbol}USDT.P\n"
-                f"🔔: High🔴🔴 RSI Alert +85\n"
-                f"RSI 5minute: {rsi_values['5m']:.2f}\n"
-                f"RSI 15minute: {rsi_values['15m']:.2f}\n"
-                f"RSI 1hour: {rsi_values['1h']:.2f}\n"
-                f"RSI 4hour: {rsi_values['4h']:.2f}\n"
-                f"Last Price: {last_price:.5f}\n"
-                f"ScalpingPA"
-            )
-            await send_telegram_alert(message)
-            return True
-    except Exception as e:
-        logging.error(f"Hata oluştu: {str(e)}")
-        pass
-    return False
-
-async def process_batch(symbols: List[str]) -> int:
-    """Toplu işleme"""
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-    
-    async def limited_check(symbol: str) -> bool:
-        async with semaphore:
-            return await check_symbol(symbol)
-    
-    results = await asyncio.gather(*[limited_check(s) for s in symbols])
-    return sum(results)
-
-async def main_loop():
-    """Ana döngü"""
-    logging.info("⚡ Bot başlatıldı")
-    
-    while True:
-        start_time = time.time()
+    for symbol in usdt_pairs:
         try:
-            markets = exchange.load_markets()
-            symbols = [
-                s for s in markets
-                if '/USDT' in s
-                and markets[s].get('contract')
-                and markets[s].get('linear')
-                and markets[s].get('active')
-                and s not in STABLECOIN_BLACKLIST
-            ]
-            
-            random.shuffle(symbols)
-            
-            logging.info(f"🔍 {len(symbols)} coin taranıyor (Blacklist: {len(STABLECOIN_BLACKLIST)} coin filtrelendi)...")
-            
-            alerts = 0
-            batch_size = 50
-            for i in range(0, len(symbols), batch_size):
-                alerts += await process_batch(symbols[i:i + batch_size])
-                if i + batch_size < len(symbols):
-                    await asyncio.sleep(5)
-            
-            elapsed = time.time() - start_time
-            logging.info(f"✅ Tarama tamamlandı | {alerts} sinyal | {elapsed:.1f}s")
-            
-            await asyncio.sleep(max(120 - elapsed, 60))
-            
-        except ccxt.BaseError as e:
-            logging.error(f"Binance hatası: {str(e)}")
-            await asyncio.sleep(60)
-        except Exception as e:
-            logging.error(f"Kritik hata: {str(e)}")
-            await asyncio.sleep(60)
+            result = calculate_rsi(symbol)
+            if result:
+                rsi_vals, avg_rsi = result
+                price = get_klines(symbol, '5m').iloc[-1]['close']
 
-if __name__ == '__main__':
-    try:
-        asyncio.run(main_loop())
-    except KeyboardInterrupt:
-        logging.info("⛔ Bot durduruldu")
-    except Exception as e:
-        logging.error(f"Kritik hata: {str(e)}")
+                message = (
+                    f"📊 RSI Bilgilendirme: {symbol}\n\n"
+                    f"RSI 5m: {rsi_vals['5m']:.2f}\n"
+                    f"RSI 15m: {rsi_vals['15m']:.2f}\n"
+                    f"RSI 1h: {rsi_vals['1h']:.2f}\n"
+                    f"RSI 4h: {rsi_vals['4h']:.2f}\n"
+                    f"Ortalama RSI: {avg_rsi:.2f}\n"
+                    f"Fiyat: {price:.5f}"
+                )
+
+                try:
+                    response = send_telegram_message(message)
+                    if response.status_code == 200:
+                        print(f"✅ Gönderildi: {symbol}")
+                except Exception as e:
+                    print(f"Telegram gönderim hatası: {e}")
+
+        except Exception as e:
+            print(f"Hata {symbol}: {e}") bu kod 2 bota mesaj atabilir mi
