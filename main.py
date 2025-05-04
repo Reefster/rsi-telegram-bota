@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 import random
 from typing import List, Optional
+from ta.momentum import RSIIndicator  # TradingView uyumlu RSI için
 
 # === Telegram Ayarları ===
 TELEGRAM_BOTS = [
@@ -96,15 +97,13 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
     except Exception:
         return None
 
+# === TradingView uyumlu RSI hesaplama ===
 def calculate_rsi(prices: List[float]) -> float:
     if len(prices) < RSI_PERIOD:
         return 50.0
-    deltas = pd.Series(prices).diff()
-    gain = deltas.clip(lower=0)
-    loss = -deltas.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1/RSI_PERIOD, adjust=False).mean().iloc[-1]
-    avg_loss = loss.ewm(alpha=1/RSI_PERIOD, adjust=False).mean().iloc[-1]
-    return 100 - (100 / (1 + (avg_gain / avg_loss))) if avg_loss != 0 else 100
+    series = pd.Series(prices)
+    rsi = RSIIndicator(close=series, window=RSI_PERIOD).rsi()
+    return float(rsi.iloc[-1])
 
 async def get_last_price(symbol: str) -> float:
     try:
