@@ -9,9 +9,13 @@ from datetime import datetime
 import random
 from typing import List, Optional
 
+from telegram import Bot
+
 # === Telegram Ayarları ===
-TELEGRAM_TOKEN = '7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4'
-CHAT_ID = '-1002565394717'
+TELEGRAM_BOTS = [
+    {\"bot\": Bot(token='7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc'), \"chat_id\": '6333148344'},
+    {\"bot\": Bot(token='7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4'), \"chat_id\": '-1002565394717'}
+]
 
 # === Binance API ===
 exchange = ccxt.binance({
@@ -49,18 +53,21 @@ STABLECOIN_BLACKLIST = [
 
 async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
     try:
-        await bot.send_message(
-            chat_id=CHAT_ID,
-            text=message,
-            parse_mode='Markdown',
-            disable_web_page_preview=True,
-            read_timeout=TELEGRAM_TIMEOUT,
-            write_timeout=TELEGRAM_TIMEOUT,
-            connect_timeout=TELEGRAM_TIMEOUT,
-            pool_timeout=TELEGRAM_TIMEOUT
-        )
-        logging.info("Telegram mesajı gönderildi.")
-        await asyncio.sleep(2)
+        for entry in TELEGRAM_BOTS:
+            bot_instance = entry[\"bot\"]
+            chat_id = entry[\"chat_id\"]
+            await bot_instance.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode='Markdown',
+                disable_web_page_preview=True,
+                read_timeout=TELEGRAM_TIMEOUT,
+                write_timeout=TELEGRAM_TIMEOUT,
+                connect_timeout=TELEGRAM_TIMEOUT,
+                pool_timeout=TELEGRAM_TIMEOUT
+            )
+            logging.info(f\"Telegram mesajı gönderildi: {chat_id}\")
+            await asyncio.sleep(2)
         return True
     except telegram_error.TimedOut:
         if retry_count < MAX_RETRIES:
@@ -71,7 +78,7 @@ async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
         await asyncio.sleep(e.retry_after + 2)
         return await send_telegram_alert(message, retry_count)
     except Exception as e:
-        logging.error(f"Telegram hatası: {str(e)}")
+        logging.error(f\"Telegram hatası: {str(e)}\")
         return False
 
 async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Optional[List[float]]:
