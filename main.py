@@ -1,17 +1,16 @@
-import requests
-import json
+from telegram.ext import ApplicationBuilder, MessageHandler, filters
+from telegram import Update
+from telegram.ext import ContextTypes
 
-# === Telegram Bot Token ===
-BOT_TOKEN = '7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4'
-def get_updates():
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    response = requests.get(url)
-    
-    try:
-        data = response.json()
-        print(json.dumps(data, indent=4))  # Daha okunaklı yazdırır
-    except Exception as e:
-        print("Hata oluştu:", e)
+BOT_TOKEN = "7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4"
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    print(f"Chat Title: {chat.title}")
+    print(f"Chat ID: {chat.id}")
+    await context.bot.send_message(chat_id=chat.id, text=f"Chat ID'in: {chat.id}")
 
 if __name__ == "__main__":
-    get_updates()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.ALL, handle_message))
+    print("Bot başlatıldı. Bir mesaj gönder, chat ID'ni gösterelim.")
+    app.run_polling()
