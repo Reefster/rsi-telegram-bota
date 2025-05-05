@@ -22,14 +22,14 @@ TELEGRAM_BOTS = [
     }
 ]
 
-# === Binance API ===
+# === Binance API Ayarları ===
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'future'},
     'timeout': 30000
 })
 
-# === Logging ===
+# === Loglama Ayarları ===
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -47,7 +47,7 @@ MAX_CONCURRENT = 5
 TELEGRAM_TIMEOUT = 30
 MAX_RETRIES = 3
 
-# === Stabil Coin Blacklist ===
+# === Stabil Coin Filtreleri ===
 STABLECOIN_BLACKLIST = [
     'USDC/USDT', 'BUSD/USDT', 'DAI/USDT', 'TUSD/USDT', 'PAX/USDT',
     'UST/USDT', 'EUR/USDT', 'GBP/USDT', 'JPY/USDT', 'AUD/USDT',
@@ -59,7 +59,7 @@ STABLECOIN_BASES = [
     "GUSD", "SUSD", "UST", "USDD"
 ]
 
-# === Telegram mesaj gönderme ===
+# === Telegram Mesaj Gönderme ===
 async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
     success = True
     for bot_info in TELEGRAM_BOTS:
@@ -90,7 +90,7 @@ async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
             success = False
     return success
 
-# === OHLCV verisi çekme ===
+# === Binance OHLCV Verisi Çekme ===
 async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Optional[List[float]]:
     try:
         data = exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
@@ -104,7 +104,7 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
     except Exception:
         return None
 
-# === RSI Hesaplama ===
+# === RSI Hesaplama Fonksiyonu ===
 def calculate_rsi(prices: List[float]) -> float:
     if len(prices) < RSI_PERIOD:
         return 50.0
@@ -112,7 +112,21 @@ def calculate_rsi(prices: List[float]) -> float:
     rsi = RSIIndicator(close=series, window=RSI_PERIOD).rsi()
     return float(rsi.iloc[-1])
 
-# === Son fiyat çekme ===
+# === Canlı Fiyat ile RSI (11 kapanış + 1 anlık) ===
+async def get_rsi_with_live_price(symbol: str, timeframe: str) -> Optional[float]:
+    try:
+        data = await fetch_ohlcv(symbol, timeframe)
+        if not data or len(data) < RSI_PERIOD - 1:
+            return None
+        close_prices = [x[4] for x in data][-RSI_PERIOD + 1:]  # 11 kapanış
+        last_price = await get_last_price(symbol)
+        close_prices.append(last_price)  # 12. veri: anlık
+        return calculate_rsi(close_prices)
+    except Exception as e:
+        logging.error(f"{symbol} {timeframe} RSI hesaplama hatası: {str(e)}")
+        return None
+
+# === Anlık Fiyat Çekme ===
 async def get_last_price(symbol: str) -> float:
     try:
         ticker = exchange.fetch_ticker(symbol)
@@ -120,31 +134,21 @@ async def get_last_price(symbol: str) -> float:
     except Exception:
         return 0.0
 
-# === RSI kontrolü ve sinyal oluşturma ===
+# === RSI Sinyali Kontrolü ===
 async def check_symbol(symbol: str) -> bool:
     try:
-        data_5m = await fetch_ohlcv(symbol, "5m")
-        if not data_5m or len(data_5m) < RSI_PERIOD:
-            return False
-        rsi_5m = calculate_rsi([x[4] for x in data_5m])  # Son mum dahil
-
-        if rsi_5m < 89:
+        rsi_5m = await get_rsi_with_live_price(symbol, "5m")
+        if rsi_5m is None or rsi_5m < 89:
             return False
 
-        data_15m = await fetch_ohlcv(symbol, "15m")
-        if not data_15m or len(data_15m) < RSI_PERIOD:
-            return False
-        rsi_15m = calculate_rsi([x[4] for x in data_15m])  # Son mum dahil
-
-        if rsi_15m < 89:
+        rsi_15m = await get_rsi_with_live_price(symbol, "15m")
+        if rsi_15m is None or rsi_15m < 89:
             return False
 
-        data_1h = await fetch_ohlcv(symbol, "1h")
-        data_4h = await fetch_ohlcv(symbol, "4h")
-        if not data_1h or not data_4h:
+        rsi_1h = await get_rsi_with_live_price(symbol, "1h")
+        rsi_4h = await get_rsi_with_live_price(symbol, "4h")
+        if rsi_1h is None or rsi_4h is None:
             return False
-        rsi_1h = calculate_rsi([x[4] for x in data_1h])
-        rsi_4h = calculate_rsi([x[4] for x in data_4h])
 
         rsi_avg = mean([rsi_5m, rsi_15m, rsi_1h, rsi_4h])
         if rsi_avg < 85:
@@ -169,7 +173,7 @@ async def check_symbol(symbol: str) -> bool:
         logging.error(f"{symbol} kontrolünde hata: {str(e)}")
         return False
 
-# === Batch kontrol ===
+# === Batch Kontrolü ===
 async def process_batch(symbols: List[str]) -> int:
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
@@ -180,10 +184,9 @@ async def process_batch(symbols: List[str]) -> int:
     results = await asyncio.gather(*[limited_check(s) for s in symbols])
     return sum(results)
 
-# === Ana döngü ===
+# === Ana Döngü ===
 async def main_loop():
     logging.info("⚡ Bot başlatıldı")
-
     while True:
         start_time = time.time()
         try:
