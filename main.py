@@ -54,6 +54,12 @@ STABLECOIN_BLACKLIST = [
     'BTC/USDT', 'ETH/USDT'
 ]
 
+STABLECOIN_BASES = [
+    "USDC", "BUSD", "TUSD", "DAI", "FDUSD", "USDP", "EURS", "PAX",
+    "GUSD", "SUSD", "UST", "USDD"
+]
+
+# === Telegram mesaj gönderme ===
 async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
     success = True
     for bot_info in TELEGRAM_BOTS:
@@ -84,6 +90,7 @@ async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
             success = False
     return success
 
+# === OHLCV verisi çekme ===
 async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Optional[List[float]]:
     try:
         data = exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
@@ -97,7 +104,7 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
     except Exception:
         return None
 
-# === TradingView uyumlu RSI hesaplama ===
+# === RSI Hesaplama (TradingView uyumlu) ===
 def calculate_rsi(prices: List[float]) -> float:
     if len(prices) < RSI_PERIOD:
         return 50.0
@@ -105,6 +112,7 @@ def calculate_rsi(prices: List[float]) -> float:
     rsi = RSIIndicator(close=series, window=RSI_PERIOD).rsi()
     return float(rsi.iloc[-1])
 
+# === Son fiyat çekme ===
 async def get_last_price(symbol: str) -> float:
     try:
         ticker = exchange.fetch_ticker(symbol)
@@ -112,6 +120,7 @@ async def get_last_price(symbol: str) -> float:
     except Exception:
         return 0.0
 
+# === RSI kontrolü ve sinyal oluşturma ===
 async def check_symbol(symbol: str) -> bool:
     try:
         data_5m = await fetch_ohlcv(symbol, "5m")
@@ -158,6 +167,7 @@ async def check_symbol(symbol: str) -> bool:
         logging.error(f"{symbol} kontrolünde hata: {str(e)}")
         return False
 
+# === Batch kontrol ===
 async def process_batch(symbols: List[str]) -> int:
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
@@ -168,8 +178,10 @@ async def process_batch(symbols: List[str]) -> int:
     results = await asyncio.gather(*[limited_check(s) for s in symbols])
     return sum(results)
 
+# === Ana döngü ===
 async def main_loop():
     logging.info("⚡ Bot başlatıldı")
+
     while True:
         start_time = time.time()
         try:
@@ -181,6 +193,7 @@ async def main_loop():
                 and markets[s].get('linear')
                 and markets[s].get('active')
                 and s not in STABLECOIN_BLACKLIST
+                and markets[s]['base'] not in STABLECOIN_BASES
             ]
 
             random.shuffle(symbols)
@@ -204,6 +217,7 @@ async def main_loop():
             logging.error(f"Kritik hata: {str(e)}")
             await asyncio.sleep(60)
 
+# === Başlatıcı ===
 if __name__ == '__main__':
     try:
         asyncio.run(main_loop())
