@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 
 # === Parametreler ===
-RSI_PERIOD = 14
+RSI_PERIOD = 12
 OHLCV_LIMIT = 50
 API_DELAY = 0.3
 MAX_CONCURRENT = 5
