@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 import random
 from typing import List, Optional
-from ta.momentum import RSIIndicator  # TradingView uyumlu RSI için
+from ta.momentum import RSIIndicator
 
 # === Telegram Ayarları ===
 TELEGRAM_BOTS = [
@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 
 # === Parametreler ===
-RSI_PERIOD = 12
-OHLCV_LIMIT = 20
+RSI_PERIOD = 14
+OHLCV_LIMIT = 50
 API_DELAY = 0.3
 MAX_CONCURRENT = 5
 TELEGRAM_TIMEOUT = 30
@@ -126,14 +126,14 @@ async def check_symbol(symbol: str) -> bool:
         data_5m = await fetch_ohlcv(symbol, "5m")
         if not data_5m or len(data_5m) < RSI_PERIOD:
             return False
-        rsi_5m = calculate_rsi([x[4] for x in data_5m])
+        rsi_5m = calculate_rsi([x[4] for x in data_5m[:-1]])
         if rsi_5m < 89:
             return False
 
         data_15m = await fetch_ohlcv(symbol, "15m")
         if not data_15m or len(data_15m) < RSI_PERIOD:
             return False
-        rsi_15m = calculate_rsi([x[4] for x in data_15m])
+        rsi_15m = calculate_rsi([x[4] for x in data_15m[:-1]])
         if rsi_15m < 89:
             return False
 
@@ -141,8 +141,8 @@ async def check_symbol(symbol: str) -> bool:
         data_4h = await fetch_ohlcv(symbol, "4h")
         if not data_1h or not data_4h:
             return False
-        rsi_1h = calculate_rsi([x[4] for x in data_1h])
-        rsi_4h = calculate_rsi([x[4] for x in data_4h])
+        rsi_1h = calculate_rsi([x[4] for x in data_1h[:-1]])
+        rsi_4h = calculate_rsi([x[4] for x in data_4h[:-1]])
 
         rsi_avg = mean([rsi_5m, rsi_15m, rsi_1h, rsi_4h])
         if rsi_avg < 85:
