@@ -104,7 +104,7 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
     except Exception:
         return None
 
-# === RSI Hesaplama (TradingView uyumlu) ===
+# === RSI Hesaplama ===
 def calculate_rsi(prices: List[float]) -> float:
     if len(prices) < RSI_PERIOD:
         return 50.0
@@ -126,14 +126,16 @@ async def check_symbol(symbol: str) -> bool:
         data_5m = await fetch_ohlcv(symbol, "5m")
         if not data_5m or len(data_5m) < RSI_PERIOD:
             return False
-        rsi_5m = calculate_rsi([x[4] for x in data_5m[:-1]])
+        rsi_5m = calculate_rsi([x[4] for x in data_5m])  # Son mum dahil
+
         if rsi_5m < 89:
             return False
 
         data_15m = await fetch_ohlcv(symbol, "15m")
         if not data_15m or len(data_15m) < RSI_PERIOD:
             return False
-        rsi_15m = calculate_rsi([x[4] for x in data_15m[:-1]])
+        rsi_15m = calculate_rsi([x[4] for x in data_15m])  # Son mum dahil
+
         if rsi_15m < 89:
             return False
 
@@ -141,8 +143,8 @@ async def check_symbol(symbol: str) -> bool:
         data_4h = await fetch_ohlcv(symbol, "4h")
         if not data_1h or not data_4h:
             return False
-        rsi_1h = calculate_rsi([x[4] for x in data_1h[:-1]])
-        rsi_4h = calculate_rsi([x[4] for x in data_4h[:-1]])
+        rsi_1h = calculate_rsi([x[4] for x in data_1h])
+        rsi_4h = calculate_rsi([x[4] for x in data_4h])
 
         rsi_avg = mean([rsi_5m, rsi_15m, rsi_1h, rsi_4h])
         if rsi_avg < 85:
