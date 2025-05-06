@@ -60,8 +60,7 @@ def calculate_rsi(symbol):
 # === Ana Tarama Döngüsü ===
 while True:
     start_time = time.time()
-    print("\n🔍 Yeni tarama başlatılıyor...\n")
-    send_telegram_message("🔍 Yeni RSI taraması başlatıldı...")
+    print("\n🔍 Yeni RSI taraması başlatıldı...\n")
 
     usdt_pairs = get_usdt_pairs()
 
@@ -88,15 +87,14 @@ while True:
 
                     response = send_telegram_message(message)
                     if response.status_code == 200:
-                        print(f"✅ Gönderildi: {symbol}")
+                        print(f"✅ Telegram sinyali gönderildi: {symbol}")
                     else:
-                        print(f"❌ Gönderilemedi: {symbol}")
+                        print(f"❌ Telegram gönderim hatası: {symbol}")
         except Exception as e:
             print(f"Hata oluştu ({symbol}): {e}")
 
     end_time = time.time()
     duration = round(end_time - start_time, 2)
-    print(f"\n✅ Tarama tamamlandı. Süre: {duration} saniye.\n")
-    send_telegram_message(f"✅ RSI taraması tamamlandı. Süre: {duration} saniye.")
+    print(f"\n✅ RSI taraması tamamlandı. Süre: {duration} saniye.\n")
 
     time.sleep(60)
