@@ -79,7 +79,7 @@ while True:
                     price = get_klines(symbol, '5m').iloc[-1]['close']
 
                     message = (
-                        f"💰: {symbol}\n"
+                        f"💰: {symbol}.P\n"
                         f"🔔: High🔴🔴 RSI Alert +85\n"
                         f"RSI 5minute: {rsi_vals['5m']:.2f}\n"
                         f"RSI 15minute: {rsi_vals['15m']:.2f}\n"
