@@ -17,7 +17,6 @@ def send_telegram_message(message, token, chat_id):
     response = requests.post(url, data=data)
     return response
 
-# === Vadeli Coinleri Getir ===
 def get_usdt_pairs():
     url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     response = requests.get(url)
@@ -32,7 +31,6 @@ def get_usdt_pairs():
                 usdt_pairs.append(symbol["symbol"])
     return usdt_pairs
 
-# === Kline Verisi Al (Futures için) ===
 def get_klines(symbol, interval, limit=100):
     url = f"https://fapi.binance.com/fapi/v1/klines"
     params = {"symbol": symbol, "interval": interval, "limit": limit}
@@ -46,23 +44,15 @@ def get_klines(symbol, interval, limit=100):
     df['close'] = pd.to_numeric(df['close'])
     return df
 
-# === RSI Hesapla ===
-def calculate_rsi(symbol):
-    intervals = ['5m', '15m', '1h', '4h']
-    rsi_values = {}
-
-    for interval in intervals:
-        df = get_klines(symbol, interval)
-        if df.empty:
-            return None
-        rsi = RSIIndicator(close=df['close'], window=12).rsi()
-        rsi_value = rsi.iloc[-1]
-        if math.isnan(rsi_value):
-            return None
-        rsi_values[interval] = rsi_value
-
-    avg_rsi = sum(rsi_values.values()) / len(rsi_values)
-    return rsi_values, round(avg_rsi, 2)
+def calculate_rsi_single_interval(symbol, interval, window=12):
+    df = get_klines(symbol, interval)
+    if df.empty:
+        return None
+    rsi = RSIIndicator(close=df['close'], window=window).rsi()
+    rsi_value = rsi.iloc[-1]
+    if math.isnan(rsi_value):
+        return None
+    return rsi_value
 
 # === Ana Tarama Döngüsü ===
 while True:
@@ -73,34 +63,51 @@ while True:
 
     for symbol in usdt_pairs:
         try:
-            result = calculate_rsi(symbol)
-            if result:
-                rsi_vals, avg_rsi = result
+            rsi_5m = calculate_rsi_single_interval(symbol, '5m')
+            if rsi_5m is None or rsi_5m < 89:
+                continue
 
-                print(f"{symbol}: RSI 5m={rsi_vals['5m']:.2f}, RSI 15m={rsi_vals['15m']:.2f}, RSI Ort={avg_rsi:.2f}", flush=True)
+            rsi_15m = calculate_rsi_single_interval(symbol, '15m')
+            if rsi_15m is None or rsi_15m < 89:
+                continue
 
-                if rsi_vals['5m'] >= 89 and rsi_vals['15m'] >= 89 and avg_rsi >= 85:
-                    price = get_klines(symbol, '5m').iloc[-1]['close']
+            rsi_1h = calculate_rsi_single_interval(symbol, '1h')
+            rsi_4h = calculate_rsi_single_interval(symbol, '4h')
+            if None in (rsi_1h, rsi_4h):
+                continue
 
-                    message = (
-                        f"💰: {symbol}.P\n"
-                        f"🔔: High🔴🔴 RSI Alert +85\n"
-                        f"RSI 5minute: {rsi_vals['5m']:.2f}\n"
-                        f"RSI 15minute: {rsi_vals['15m']:.2f}\n"
-                        f"RSI 1hour: {rsi_vals['1h']:.2f}\n"
-                        f"RSI 4hour: {rsi_vals['4h']:.2f}\n"
-                        f"Last Price: {price:.5f}\n"
-                        f"ScalpingPA"
-                    )
+            avg_rsi = round((rsi_5m + rsi_15m + rsi_1h + rsi_4h) / 4, 2)
+            if avg_rsi < 85:
+                continue
 
-                    # Her iki bota mesaj gönder
-                    res1 = send_telegram_message(message, BOT1_TOKEN, BOT1_CHAT_ID)
-                    res2 = send_telegram_message(message, BOT2_TOKEN, BOT2_CHAT_ID)
+            # === Gönderimden önce verileri güncelle ===
+            rsi_5m = calculate_rsi_single_interval(symbol, '5m')
+            rsi_15m = calculate_rsi_single_interval(symbol, '15m')
+            rsi_1h = calculate_rsi_single_interval(symbol, '1h')
+            rsi_4h = calculate_rsi_single_interval(symbol, '4h')
+            price = get_klines(symbol, '5m').iloc[-1]['close']
 
-                    if res1.status_code == 200 and res2.status_code == 200:
-                        print(f"✅ İki bota sinyal gönderildi: {symbol}", flush=True)
-                    else:
-                        print(f"❌ Gönderim hatası: {symbol}", flush=True)
+            if None in (rsi_5m, rsi_15m, rsi_1h, rsi_4h):
+                continue
+
+            message = (
+                f"💰: {symbol}.P\n"
+                f"🔔: High🔴🔴 RSI Alert +85\n"
+                f"RSI 5minute: {rsi_5m:.2f}\n"
+                f"RSI 15minute: {rsi_15m:.2f}\n"
+                f"RSI 1hour: {rsi_1h:.2f}\n"
+                f"RSI 4hour: {rsi_4h:.2f}\n"
+                f"Last Price: {price:.5f}\n"
+                f"ScalpingPA"
+            )
+
+            res1 = send_telegram_message(message, BOT1_TOKEN, BOT1_CHAT_ID)
+            res2 = send_telegram_message(message, BOT2_TOKEN, BOT2_CHAT_ID)
+
+            if res1.status_code == 200 and res2.status_code == 200:
+                print(f"✅ İki bota sinyal gönderildi: {symbol}", flush=True)
+            else:
+                print(f"❌ Gönderim hatası: {symbol}", flush=True)
 
         except Exception as e:
             print(f"Hata oluştu ({symbol}): {e}", flush=True)
