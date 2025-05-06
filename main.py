@@ -17,21 +17,24 @@ def send_telegram_message(message, token, chat_id):
     response = requests.post(url, data=data)
     return response
 
+# === Vadeli Coinleri Getir ===
 def get_usdt_pairs():
-    url = "https://api.binance.com/api/v3/exchangeInfo"
+    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     response = requests.get(url)
     data = response.json()
     usdt_pairs = []
-    blacklist = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "USTC", "EURS", "PAX", "USDT"]
+    blacklist = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "USTC", "EURS", "PAX"]
+
     for symbol in data["symbols"]:
-        if symbol["quoteAsset"] == "USDT" and symbol["status"] == "TRADING":
+        if symbol["quoteAsset"] == "USDT" and symbol["contractType"] == "PERPETUAL" and symbol["status"] == "TRADING":
             base = symbol["baseAsset"]
             if base not in blacklist:
                 usdt_pairs.append(symbol["symbol"])
     return usdt_pairs
 
+# === Kline Verisi Al (Futures için) ===
 def get_klines(symbol, interval, limit=100):
-    url = f"https://api.binance.com/api/v3/klines"
+    url = f"https://fapi.binance.com/fapi/v1/klines"
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     response = requests.get(url, params=params)
     data = response.json()
@@ -43,6 +46,7 @@ def get_klines(symbol, interval, limit=100):
     df['close'] = pd.to_numeric(df['close'])
     return df
 
+# === RSI Hesapla ===
 def calculate_rsi(symbol):
     intervals = ['5m', '15m', '1h', '4h']
     rsi_values = {}
