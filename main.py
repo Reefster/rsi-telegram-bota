@@ -13,7 +13,7 @@ from typing import List, Optional
 # === Telegram Ayarları ===
 TELEGRAM_BOTS = [
     {'token': '7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc', 'chat_id': '6333148344'},
-    {'token': '7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4', 'chat_id': '-1002565394717'}
+    {'token': '17761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4', 'chat_id': '-11002565394717'}
 ]
 
 # === Binance API ===
