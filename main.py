@@ -48,7 +48,7 @@ def calculate_rsi(symbol):
         df = get_klines(symbol, interval)
         if df.empty:
             return None
-        rsi = RSIIndicator(close=df['close'], window=12).rsi()  # RSI penceresi 12 yapıldı
+        rsi = RSIIndicator(close=df['close'], window=12).rsi()
         rsi_value = rsi.iloc[-1]
         if math.isnan(rsi_value):
             return None
@@ -59,7 +59,10 @@ def calculate_rsi(symbol):
 
 # === Ana Tarama Döngüsü ===
 while True:
+    start_time = time.time()
     print("\n🔍 Yeni tarama başlatılıyor...\n")
+    send_telegram_message("🔍 Yeni RSI taraması başlatıldı...")
+
     usdt_pairs = get_usdt_pairs()
 
     for symbol in usdt_pairs:
@@ -68,11 +71,9 @@ while True:
             if result:
                 rsi_vals, avg_rsi = result
 
-                # Terminale yazdır (her coin için)
                 print(f"{symbol}: RSI 5m={rsi_vals['5m']:.2f}, RSI 15m={rsi_vals['15m']:.2f}, RSI Ort={avg_rsi:.2f}")
 
-                # Sinyal koşulları sağlanıyorsa Telegram'a gönder
-                if rsi_vals['5m'] >=  70 and rsi_vals['15m'] >= 70 and avg_rsi >= 65:
+                if rsi_vals['5m'] >= 70 and rsi_vals['15m'] >= 70 and avg_rsi >= 65:
                     price = get_klines(symbol, '5m').iloc[-1]['close']
 
                     message = (
@@ -92,5 +93,10 @@ while True:
                         print(f"❌ Gönderilemedi: {symbol}")
         except Exception as e:
             print(f"Hata oluştu ({symbol}): {e}")
+
+    end_time = time.time()
+    duration = round(end_time - start_time, 2)
+    print(f"\n✅ Tarama tamamlandı. Süre: {duration} saniye.\n")
+    send_telegram_message(f"✅ RSI taraması tamamlandı. Süre: {duration} saniye.")
 
     time.sleep(60)
