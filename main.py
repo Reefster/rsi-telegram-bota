@@ -5,12 +5,15 @@ import math
 from ta.momentum import RSIIndicator
 
 # === Telegram Bilgileri ===
-BOT_TOKEN = "7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc"
-CHAT_ID = "6333148344"
+BOT1_TOKEN = "7995990027:AAFJ3HFQff_l78ngUjmel3Y-WjBPhMcLQPc"
+BOT1_CHAT_ID = "6333148344"
 
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": message}
+BOT2_TOKEN = "7761091287:AAGEW8OcnfMFUt5_DmAIzBm2I63YgHAcia4"
+BOT2_CHAT_ID = "-1002565394717"
+
+def send_telegram_message(message, token, chat_id):
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    data = {"chat_id": chat_id, "text": message}
     response = requests.post(url, data=data)
     return response
 
@@ -60,7 +63,7 @@ def calculate_rsi(symbol):
 # === Ana Tarama Döngüsü ===
 while True:
     start_time = time.time()
-    print("\n🔍 Yeni RSI taraması başlatıldı...\n")
+    print("\n🔍 Yeni RSI taraması başlatıldı...\n", flush=True)
 
     usdt_pairs = get_usdt_pairs()
 
@@ -70,31 +73,36 @@ while True:
             if result:
                 rsi_vals, avg_rsi = result
 
-                print(f"{symbol}: RSI 5m={rsi_vals['5m']:.2f}, RSI 15m={rsi_vals['15m']:.2f}, RSI Ort={avg_rsi:.2f}")
+                print(f"{symbol}: RSI 5m={rsi_vals['5m']:.2f}, RSI 15m={rsi_vals['15m']:.2f}, RSI Ort={avg_rsi:.2f}", flush=True)
 
-                if rsi_vals['5m'] >= 70 and rsi_vals['15m'] >= 70 and avg_rsi >= 65:
+                if rsi_vals['5m'] >= 50 and rsi_vals['15m'] >= 50 and avg_rsi >= 45:
                     price = get_klines(symbol, '5m').iloc[-1]['close']
 
                     message = (
-                        f"📊 RSI Sinyali: {symbol}\n\n"
-                        f"RSI 5m: {rsi_vals['5m']:.2f}\n"
-                        f"RSI 15m: {rsi_vals['15m']:.2f}\n"
-                        f"RSI 1h: {rsi_vals['1h']:.2f}\n"
-                        f"RSI 4h: {rsi_vals['4h']:.2f}\n"
-                        f"Ortalama RSI: {avg_rsi:.2f}\n"
-                        f"Fiyat: {price:.5f}"
+                        f"💰: {symbol}\n"
+                        f"🔔: High🔴🔴 RSI Alert +85\n"
+                        f"RSI 5minute: {rsi_vals['5m']:.2f}\n"
+                        f"RSI 15minute: {rsi_vals['15m']:.2f}\n"
+                        f"RSI 1hour: {rsi_vals['1h']:.2f}\n"
+                        f"RSI 4hour: {rsi_vals['4h']:.2f}\n"
+                        f"Last Price: {price:.5f}\n"
+                        f"ScalpingPA"
                     )
 
-                    response = send_telegram_message(message)
-                    if response.status_code == 200:
-                        print(f"✅ Telegram sinyali gönderildi: {symbol}")
+                    # Her iki bota mesaj gönder
+                    res1 = send_telegram_message(message, BOT1_TOKEN, BOT1_CHAT_ID)
+                    res2 = send_telegram_message(message, BOT2_TOKEN, BOT2_CHAT_ID)
+
+                    if res1.status_code == 200 and res2.status_code == 200:
+                        print(f"✅ İki bota sinyal gönderildi: {symbol}", flush=True)
                     else:
-                        print(f"❌ Telegram gönderim hatası: {symbol}")
+                        print(f"❌ Gönderim hatası: {symbol}", flush=True)
+
         except Exception as e:
-            print(f"Hata oluştu ({symbol}): {e}")
+            print(f"Hata oluştu ({symbol}): {e}", flush=True)
 
     end_time = time.time()
     duration = round(end_time - start_time, 2)
-    print(f"\n✅ RSI taraması tamamlandı. Süre: {duration} saniye.\n")
+    print(f"\n✅ RSI taraması tamamlandı. Süre: {duration} saniye.\n", flush=True)
 
     time.sleep(60)
