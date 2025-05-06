@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 import random
 from typing import List, Optional
+from ta.momentum import RSIIndicator  # Binance ile uyumlu RSI
 
 # === Telegram Ayarları ===
 TELEGRAM_BOTS = [
@@ -35,7 +36,7 @@ logging.basicConfig(
 
 # === Parametreler ===
 RSI_PERIOD = 12
-OHLCV_LIMIT = RSI_PERIOD + 2  # 12 RSI + 1 tamamlanmamış mum = 14
+OHLCV_LIMIT = RSI_PERIOD + 2  # Son açık mum dahil
 API_DELAY = 0.2
 MAX_CONCURRENT = 10
 TELEGRAM_TIMEOUT = 30
@@ -73,7 +74,7 @@ async def send_telegram_alert(message: str, retry_count: int = 0) -> bool:
             logging.error(f"Telegram hatası ({bot_info['chat_id']}): {str(e)}")
     return True
 
-# === Veri Çekme ===
+# === Binance OHLCV verisi çekme ===
 async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Optional[List[float]]:
     try:
         data = exchange.fetch_ohlcv(symbol, timeframe, limit=OHLCV_LIMIT)
@@ -87,30 +88,19 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
         pass
     return None
 
-# === RSI Hesaplama (Wilder’s RSI) ===
-def calculate_rsi_tradingview(prices: List[float]) -> float:
-    if len(prices) < RSI_PERIOD + 1:
-        return 50.0
-    deltas = np.diff(prices)
-    gains = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
-    avg_gain = np.mean(gains[:RSI_PERIOD])
-    avg_loss = np.mean(losses[:RSI_PERIOD])
-    for i in range(RSI_PERIOD, len(gains)):
-        avg_gain = (avg_gain * (RSI_PERIOD - 1) + gains[i]) / RSI_PERIOD
-        avg_loss = (avg_loss * (RSI_PERIOD - 1) + losses[i]) / RSI_PERIOD
-    if avg_loss == 0:
-        return 100.0 if avg_gain != 0 else 50.0
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+# === Binance uyumlu RSI hesaplama (ta kütüphanesi ile) ===
+def calculate_rsi_ta(prices: List[float]) -> float:
+    close_series = pd.Series(prices)
+    rsi = RSIIndicator(close=close_series, window=RSI_PERIOD)
+    return rsi.rsi().iloc[-1]
 
-# === RSI Verisini Al (Son Mum Dahil) ===
+# === RSI değerini getir ===
 async def get_rsi_tradingview(symbol: str, timeframe: str) -> Optional[float]:
     data = await fetch_ohlcv(symbol, timeframe)
     if not data or len(data) < RSI_PERIOD + 2:
         return None
-    close_prices = [x[4] for x in data][-13:]  # 12 RSI + son açık mum
-    return calculate_rsi_tradingview(close_prices)
+    close_prices = [x[4] for x in data][-13:]  # son mum dahil
+    return calculate_rsi_ta(close_prices)
 
 async def get_last_price(symbol: str) -> float:
     try:
@@ -119,15 +109,15 @@ async def get_last_price(symbol: str) -> float:
     except Exception:
         return 0.0
 
-# === RSI Kontrolü (Optimize) ===
+# === RSI kontrolü ===
 async def check_symbol(symbol: str) -> bool:
     try:
         rsi_5m = await get_rsi_tradingview(symbol, "5m")
-        if rsi_5m is None or rsi_5m < 74:
+        if rsi_5m is None or rsi_5m < 79:
             return False
 
         rsi_15m = await get_rsi_tradingview(symbol, "15m")
-        if rsi_15m is None or rsi_15m < 74:
+        if rsi_15m is None or rsi_15m < 79:
             return False
 
         rsi_1h = await get_rsi_tradingview(symbol, "1h")
@@ -136,7 +126,7 @@ async def check_symbol(symbol: str) -> bool:
             return False
 
         rsi_avg = mean([rsi_5m, rsi_15m, rsi_1h, rsi_4h])
-        if rsi_avg < 70:
+        if rsi_avg < 75:
             return False
 
         last_price = await get_last_price(symbol)
@@ -194,7 +184,7 @@ async def main_loop():
             logging.error(f"Genel hata: {str(e)}")
             await asyncio.sleep(60)
 
-# === Çalıştır ===
+# === Başlat ===
 if __name__ == '__main__':
     try:
         asyncio.run(main_loop())
