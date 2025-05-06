@@ -123,7 +123,7 @@ async def get_last_price(symbol: str) -> float:
 async def check_symbol(symbol: str) -> bool:
     try:
         rsi_5m = await get_rsi_tradingview(symbol, "5m")
-        if rsi_5m is None or rsi_5m < 80:
+        if rsi_5m is None or rsi_5m < 180:
             return False
 
         rsi_15m = await get_rsi_tradingview(symbol, "15m")
