@@ -9,7 +9,6 @@ import time
 from datetime import datetime
 import random
 from typing import List, Optional
-from ta.momentum import RSIIndicator  # Binance ile uyumlu RSI
 
 # === Telegram Ayarları ===
 TELEGRAM_BOTS = [
@@ -36,7 +35,7 @@ logging.basicConfig(
 
 # === Parametreler ===
 RSI_PERIOD = 12
-OHLCV_LIMIT = RSI_PERIOD + 2  # Son açık mum dahil
+OHLCV_LIMIT = RSI_PERIOD + 2  # 13 kapanış = 12 RSI + son açık mum
 API_DELAY = 0.2
 MAX_CONCURRENT = 10
 TELEGRAM_TIMEOUT = 30
@@ -88,20 +87,29 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
         pass
     return None
 
-# === Binance uyumlu RSI hesaplama (ta kütüphanesi ile) ===
+# === Basit RSI Hesaplama (Son mum dahil) ===
 def calculate_rsi_ta(prices: List[float]) -> float:
-    close_series = pd.Series(prices)
-    rsi = RSIIndicator(close=close_series, window=RSI_PERIOD)
-    return rsi.rsi().iloc[-1]
+    close = pd.Series(prices)
+    delta = close.diff().dropna()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
 
-# === RSI değerini getir ===
+    avg_gain = gain.rolling(window=RSI_PERIOD).mean()
+    avg_loss = loss.rolling(window=RSI_PERIOD).mean()
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.iloc[-1]
+
+# === RSI Değerini Getir (Son kapanmamış mum dahil) ===
 async def get_rsi_tradingview(symbol: str, timeframe: str) -> Optional[float]:
     data = await fetch_ohlcv(symbol, timeframe)
     if not data or len(data) < RSI_PERIOD + 2:
         return None
-    close_prices = [x[4] for x in data][-13:]  # son mum dahil
+    close_prices = [x[4] for x in data][-13:]  # 13 kapanış: son mum dahil
     return calculate_rsi_ta(close_prices)
 
+# === Son Fiyatı Getir ===
 async def get_last_price(symbol: str) -> float:
     try:
         ticker = exchange.fetch_ticker(symbol)
@@ -109,15 +117,15 @@ async def get_last_price(symbol: str) -> float:
     except Exception:
         return 0.0
 
-# === RSI kontrolü ===
+# === RSI Kontrolü ===
 async def check_symbol(symbol: str) -> bool:
     try:
         rsi_5m = await get_rsi_tradingview(symbol, "5m")
-        if rsi_5m is None or rsi_5m < 79:
+        if rsi_5m is None or rsi_5m < 69:
             return False
 
         rsi_15m = await get_rsi_tradingview(symbol, "15m")
-        if rsi_15m is None or rsi_15m < 79:
+        if rsi_15m is None or rsi_15m < 69:
             return False
 
         rsi_1h = await get_rsi_tradingview(symbol, "1h")
@@ -126,7 +134,7 @@ async def check_symbol(symbol: str) -> bool:
             return False
 
         rsi_avg = mean([rsi_5m, rsi_15m, rsi_1h, rsi_4h])
-        if rsi_avg < 75:
+        if rsi_avg < 65:
             return False
 
         last_price = await get_last_price(symbol)
