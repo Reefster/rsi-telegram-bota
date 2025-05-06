@@ -36,7 +36,7 @@ logging.basicConfig(
 
 # === Parametreler ===
 RSI_PERIOD = 12
-OHLCV_LIMIT = RSI_PERIOD + 2  # son açık mum dahil olacak şekilde veri çek
+OHLCV_LIMIT = RSI_PERIOD + 2  # tamamlanmış 12 + 1 açık mum için yeterli
 API_DELAY = 0.2
 MAX_CONCURRENT = 10
 TELEGRAM_TIMEOUT = 30
@@ -88,21 +88,30 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
         pass
     return None
 
-# === Binance uyumlu RSI (Wilder smoothing ile) ===
+# === Binance uyumlu RSI hesaplama ===
 def calculate_rsi_ta(prices: List[float]) -> float:
     close_series = pd.Series(prices)
     rsi = RSIIndicator(close=close_series, window=RSI_PERIOD)
     return rsi.rsi().iloc[-1]
 
-# === RSI Değerini Getir (son açık mum dahil) ===
+# === RSI değeri (tamamlanmamış mum dahil) ===
 async def get_rsi_tradingview(symbol: str, timeframe: str) -> Optional[float]:
     data = await fetch_ohlcv(symbol, timeframe)
-    if not data or len(data) < RSI_PERIOD + 2:
+    if not data or len(data) < RSI_PERIOD + 1:
         return None
-    close_prices = [x[4] for x in data][-13:]  # 12 RSI + son açık mum = 13 kapanış
+
+    close_prices = [x[4] for x in data][-12:]  # 12 tamamlanmış kapanış
+
+    try:
+        ticker = exchange.fetch_ticker(symbol)
+        live_close = float(ticker['last'])  # son açık mumun anlık fiyatı
+    except Exception:
+        return None
+
+    close_prices.append(live_close)  # kapanmamış mumu dahil et
     return calculate_rsi_ta(close_prices)
 
-# === Son Fiyatı Getir ===
+# === Son fiyat ===
 async def get_last_price(symbol: str) -> float:
     try:
         ticker = exchange.fetch_ticker(symbol)
@@ -110,15 +119,15 @@ async def get_last_price(symbol: str) -> float:
     except Exception:
         return 0.0
 
-# === RSI Kontrolü ===
+# === RSI sinyal kontrolü ===
 async def check_symbol(symbol: str) -> bool:
     try:
         rsi_5m = await get_rsi_tradingview(symbol, "5m")
-        if rsi_5m is None or rsi_5m < 69:
+        if rsi_5m is None or rsi_5m < 80:
             return False
 
         rsi_15m = await get_rsi_tradingview(symbol, "15m")
-        if rsi_15m is None or rsi_15m < 69:
+        if rsi_15m is None or rsi_15m < 80:
             return False
 
         rsi_1h = await get_rsi_tradingview(symbol, "1h")
@@ -127,7 +136,7 @@ async def check_symbol(symbol: str) -> bool:
             return False
 
         rsi_avg = mean([rsi_5m, rsi_15m, rsi_1h, rsi_4h])
-        if rsi_avg < 65:
+        if rsi_avg < 75:
             return False
 
         last_price = await get_last_price(symbol)
@@ -148,7 +157,7 @@ async def check_symbol(symbol: str) -> bool:
         logging.error(f"{symbol} kontrol hatası: {str(e)}")
         return False
 
-# === Batch İşleme ===
+# === Batch kontrol ===
 async def process_batch(symbols: List[str]) -> int:
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
     async def limited_check(symbol: str) -> bool:
@@ -157,7 +166,7 @@ async def process_batch(symbols: List[str]) -> int:
     results = await asyncio.gather(*[limited_check(s) for s in symbols])
     return sum(results)
 
-# === Ana Döngü ===
+# === Ana döngü ===
 async def main_loop():
     logging.info("⚡ Bot başlatıldı")
     while True:
