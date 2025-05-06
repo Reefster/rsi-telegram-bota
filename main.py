@@ -23,7 +23,7 @@ def get_usdt_pairs():
     response = requests.get(url)
     data = response.json()
     usdt_pairs = []
-    blacklist = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "USTC", "EURS", "PAX"]
+    blacklist = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "USTC", "EURS", "PAX", "BTCDOM"]
 
     for symbol in data["symbols"]:
         if symbol["quoteAsset"] == "USDT" and symbol["contractType"] == "PERPETUAL" and symbol["status"] == "TRADING":
@@ -79,7 +79,7 @@ while True:
 
                 print(f"{symbol}: RSI 5m={rsi_vals['5m']:.2f}, RSI 15m={rsi_vals['15m']:.2f}, RSI Ort={avg_rsi:.2f}", flush=True)
 
-                if rsi_vals['5m'] >= 50 and rsi_vals['15m'] >= 50 and avg_rsi >= 45:
+                if rsi_vals['5m'] >= 89 and rsi_vals['15m'] >= 89 and avg_rsi >= 85:
                     price = get_klines(symbol, '5m').iloc[-1]['close']
 
                     message = (
