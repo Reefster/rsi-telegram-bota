@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 import random
 from typing import List, Optional
+from ta.momentum import RSIIndicator  # Binance uyumlu RSI (Wilder smoothing)
 
 # === Telegram Ayarları ===
 TELEGRAM_BOTS = [
@@ -35,7 +36,7 @@ logging.basicConfig(
 
 # === Parametreler ===
 RSI_PERIOD = 12
-OHLCV_LIMIT = RSI_PERIOD + 2  # 13 kapanış = 12 RSI + son açık mum
+OHLCV_LIMIT = RSI_PERIOD + 2  # son açık mum dahil olacak şekilde veri çek
 API_DELAY = 0.2
 MAX_CONCURRENT = 10
 TELEGRAM_TIMEOUT = 30
@@ -87,26 +88,18 @@ async def fetch_ohlcv(symbol: str, timeframe: str, retry_count: int = 0) -> Opti
         pass
     return None
 
-# === Basit RSI Hesaplama (Son mum dahil) ===
+# === Binance uyumlu RSI (Wilder smoothing ile) ===
 def calculate_rsi_ta(prices: List[float]) -> float:
-    close = pd.Series(prices)
-    delta = close.diff().dropna()
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
+    close_series = pd.Series(prices)
+    rsi = RSIIndicator(close=close_series, window=RSI_PERIOD)
+    return rsi.rsi().iloc[-1]
 
-    avg_gain = gain.rolling(window=RSI_PERIOD).mean()
-    avg_loss = loss.rolling(window=RSI_PERIOD).mean()
-
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi.iloc[-1]
-
-# === RSI Değerini Getir (Son kapanmamış mum dahil) ===
+# === RSI Değerini Getir (son açık mum dahil) ===
 async def get_rsi_tradingview(symbol: str, timeframe: str) -> Optional[float]:
     data = await fetch_ohlcv(symbol, timeframe)
     if not data or len(data) < RSI_PERIOD + 2:
         return None
-    close_prices = [x[4] for x in data][-13:]  # 13 kapanış: son mum dahil
+    close_prices = [x[4] for x in data][-13:]  # 12 RSI + son açık mum = 13 kapanış
     return calculate_rsi_ta(close_prices)
 
 # === Son Fiyatı Getir ===
