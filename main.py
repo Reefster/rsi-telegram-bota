@@ -14,9 +14,9 @@ BOT2_CHAT_ID = "-1002565394717"
 
 # === Binance API Ayarları ===
 API_URL = "https://fapi.binance.com"
-KLINES_LIMIT = 50  # Daha az veri daha hızlı yanıt
+KLINES_LIMIT = 100
 RSI_WINDOW = 12
-MAX_CONCURRENT_REQUESTS = 20  # Daha agresif tarama için
+MAX_CONCURRENT_REQUESTS = 10  # Eşzamanlı istek sayısı
 
 # === Sembol Filtreleme ===
 STABLE_COINS = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "USTC", "EURS", "PAX"]
@@ -59,7 +59,7 @@ async def get_usdt_futures_pairs(session):
 async def get_klines(session, symbol, interval):
     try:
         params = {'symbol': symbol, 'interval': interval, 'limit': KLINES_LIMIT}
-        async with session.get(f"{API_URL}/fapi/v1/klines", params=params, timeout=3) as response:  # Daha kısa timeout
+        async with session.get(f"{API_URL}/fapi/v1/klines", params=params, timeout=5) as response:
             data = await response.json()
             return [float(candle[4]) for candle in data]  # Close prices
     except Exception as e:
@@ -68,13 +68,16 @@ async def get_klines(session, symbol, interval):
 
 async def check_symbol(session, symbol):
     try:
+        # Tüm zaman dilimlerini eşzamanlı olarak al
         intervals = ['5m', '15m', '1h', '4h']
         tasks = [get_klines(session, symbol, interval) for interval in intervals]
         results = await asyncio.gather(*tasks)
         
+        # Verilerin tamamı geldi mi kontrol et
         if any(result is None for result in results):
             return None
         
+        # RSI hesapla
         rsi_values = {}
         for interval, closes in zip(intervals, results):
             if len(closes) >= RSI_WINDOW + 1:
@@ -84,11 +87,15 @@ async def check_symbol(session, symbol):
             else:
                 return None
         
+        # Koşulları kontrol et
         if (rsi_values['5m'] >= 85 and 
             rsi_values['15m'] >= 85 and 
             (rsi_values['5m'] + rsi_values['15m'] + rsi_values['1h'] + rsi_values['4h']) / 4 >= 80):
             
-            current_price = results[0][-1]
+            # Son fiyatı al
+            current_price = results[0][-1]  # 5m kapanış fiyatı
+            
+            # Mesajı gönder
             await send_telegram_alert(session, symbol, rsi_values, current_price)
             return symbol
     
@@ -106,14 +113,14 @@ async def main_scan():
             
             symbols = await get_usdt_futures_pairs(session)
             if not symbols:
-                print("⚠️ Sembol listesi alınamadı. 10 saniye bekleniyor...")
-                await asyncio.sleep(10)
+                print("⚠️ Sembol listesi alınamadı. 60 saniye bekleniyor...")
+                await asyncio.sleep(60)
                 continue
             
             print(f"📊 {len(symbols)} sembol taranıyor...")
             
-            # Tüm sembolleri tek seferde tarama (daha agresif)
-            batch_size = len(symbols)  # Tüm sembolleri aynı anda tara
+            # Sembolleri gruplara ayır (eşzamanlı işlem için)
+            batch_size = MAX_CONCURRENT_REQUESTS
             alerted_symbols = []
             
             for i in range(0, len(symbols), batch_size):
@@ -121,21 +128,15 @@ async def main_scan():
                 tasks = [check_symbol(session, symbol) for symbol in batch]
                 results = await asyncio.gather(*tasks)
                 alerted_symbols.extend([res for res in results if res is not None])
+                
+                # Binance API rate limit koruması
+                await asyncio.sleep(0.1)
             
             scan_duration = time.time() - start_time
             print(f"\n✅ Tarama tamamlandı (Süre: {scan_duration:.2f}s)")
             print(f"📢 Sinyal gönderilen semboller: {alerted_symbols or 'Yok'}")
-            
-            # 1 saniyelik mini bekleme (sürekli döngü için)
-            await asyncio.sleep(1)
+            print(f"⏳ Sonraki tarama için 60 saniye bekleniyor...")
+            await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    # Daha yüksek performans için event loop ayarı
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(main_scan())
-    except KeyboardInterrupt:
-        pass
-    finally:
-        loop.close()
+    asyncio.run(main_scan())
