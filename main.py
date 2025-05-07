@@ -64,11 +64,11 @@ while True:
     for symbol in usdt_pairs:
         try:
             rsi_5m = calculate_rsi_single_interval(symbol, '5m')
-            if rsi_5m is None or rsi_5m < 89:
+            if rsi_5m is None or rsi_5m < 85:
                 continue
 
             rsi_15m = calculate_rsi_single_interval(symbol, '15m')
-            if rsi_15m is None or rsi_15m < 89:
+            if rsi_15m is None or rsi_15m < 85:
                 continue
 
             rsi_1h = calculate_rsi_single_interval(symbol, '1h')
@@ -77,7 +77,7 @@ while True:
                 continue
 
             avg_rsi = round((rsi_5m + rsi_15m + rsi_1h + rsi_4h) / 4, 2)
-            if avg_rsi < 85:
+            if avg_rsi < 80:
                 continue
 
             # === Gönderimden önce verileri güncelle ===
