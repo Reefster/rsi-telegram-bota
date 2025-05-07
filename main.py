@@ -2,6 +2,8 @@ import requests
 import pandas as pd
 import time
 import math
+import asyncio
+import aiohttp
 from ta.momentum import RSIIndicator
 
 # === Telegram Ayarları ===
@@ -12,159 +14,128 @@ BOT2_CHAT_ID = "-1002565394717"
 
 # === Binance API Ayarları ===
 API_URL = "https://fapi.binance.com"
-KLINES_LIMIT = 100
+KLINES_LIMIT = 50  # Daha az veri daha hızlı yanıt
 RSI_WINDOW = 12
+MAX_CONCURRENT_REQUESTS = 20  # Daha agresif tarama için
 
 # === Sembol Filtreleme ===
 STABLE_COINS = ["USDC", "BUSD", "TUSD", "USDP", "DAI", "FDUSD", "USTC", "EURS", "PAX"]
 
-def send_telegram_alerts(symbol, rsi_5m, rsi_15m, rsi_1h, rsi_4h, price):
+async def send_telegram_alert(session, symbol, rsi_values, price):
     message = (
         f"💰: {symbol}.P\n"
         f"🔔: High🔴🔴 RSI Alert +85\n"
-        f"RSI 5minute: {rsi_5m:.2f}\n"
-        f"RSI 15minute: {rsi_15m:.2f}\n"
-        f"RSI 1hour: {rsi_1h:.2f}\n"
-        f"RSI 4hour: {rsi_4h:.2f}\n"
+        f"RSI 5minute: {rsi_values['5m']:.2f}\n"
+        f"RSI 15minute: {rsi_values['15m']:.2f}\n"
+        f"RSI 1hour: {rsi_values['1h']:.2f}\n"
+        f"RSI 4hour: {rsi_values['4h']:.2f}\n"
         f"Last Price: {price:.5f}\n"
         f"ScalpingPA"
     )
     
-    # İki bota aynı anda mesaj gönder
-    success = True
+    tasks = []
     for bot_token, chat_id in [(BOT1_TOKEN, BOT1_CHAT_ID), (BOT2_TOKEN, BOT2_CHAT_ID)]:
-        try:
-            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            data = {"chat_id": chat_id, "text": message}
-            response = requests.post(url, data=data, timeout=5)
-            if response.status_code != 200:
-                print(f"❌ {chat_id} gönderim hatası: {symbol}")
-                success = False
-        except Exception as e:
-            print(f"❌ {chat_id} bağlantı hatası: {str(e)}")
-            success = False
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        tasks.append(session.post(url, data={"chat_id": chat_id, "text": message}))
     
-    return success
+    responses = await asyncio.gather(*tasks, return_exceptions=True)
+    return all(not isinstance(res, Exception) for res in responses)
 
-def get_usdt_futures_pairs():
+async def get_usdt_futures_pairs(session):
     try:
-        response = requests.get(f"{API_URL}/fapi/v1/exchangeInfo", timeout=10)
-        data = response.json()
-        return [
-            symbol['symbol'] for symbol in data['symbols']
-            if symbol['quoteAsset'] == 'USDT' 
-            and symbol['contractType'] == 'PERPETUAL'
-            and symbol['status'] == 'TRADING'
-            and not any(coin in symbol['baseAsset'] for coin in STABLE_COINS)
-        ]
+        async with session.get(f"{API_URL}/fapi/v1/exchangeInfo", timeout=10) as response:
+            data = await response.json()
+            return [
+                symbol['symbol'] for symbol in data['symbols']
+                if symbol['quoteAsset'] == 'USDT' 
+                and symbol['contractType'] == 'PERPETUAL'
+                and symbol['status'] == 'TRADING'
+                and not any(coin in symbol['baseAsset'] for coin in STABLE_COINS)
+            ]
     except Exception as e:
         print(f"❌ Sembol listesi alınamadı: {str(e)}")
         return []
 
-def get_latest_data(symbol):
-    """Son verileri tek seferde alır"""
-    intervals = ['5m', '15m', '1h', '4h']
-    data = {}
-    
-    for interval in intervals:
-        try:
-            params = {'symbol': symbol, 'interval': interval, 'limit': KLINES_LIMIT}
-            response = requests.get(f"{API_URL}/fapi/v1/klines", params=params, timeout=5)
-            candles = response.json()
-            close_prices = [float(candle[4]) for candle in candles]
-            data[interval] = close_prices
-        except Exception as e:
-            print(f"❌ {symbol} {interval} veri alım hatası: {str(e)}")
+async def get_klines(session, symbol, interval):
+    try:
+        params = {'symbol': symbol, 'interval': interval, 'limit': KLINES_LIMIT}
+        async with session.get(f"{API_URL}/fapi/v1/klines", params=params, timeout=3) as response:  # Daha kısa timeout
+            data = await response.json()
+            return [float(candle[4]) for candle in data]  # Close prices
+    except Exception as e:
+        print(f"❌ {symbol} {interval} veri alım hatası: {str(e)}")
+        return None
+
+async def check_symbol(session, symbol):
+    try:
+        intervals = ['5m', '15m', '1h', '4h']
+        tasks = [get_klines(session, symbol, interval) for interval in intervals]
+        results = await asyncio.gather(*tasks)
+        
+        if any(result is None for result in results):
             return None
-    
-    return data
-
-def calculate_all_rsi(data):
-    """Tüm RSI değerlerini hesaplar"""
-    rsi_values = {}
-    for interval in data:
-        if len(data[interval]) >= RSI_WINDOW + 1:
-            df = pd.DataFrame(data[interval], columns=['close'])
-            rsi = RSIIndicator(df['close'], window=RSI_WINDOW).rsi()
-            rsi_values[interval] = rsi.iloc[-1]
-        else:
-            return None
-    return rsi_values
-
-def check_initial_conditions(rsi_values):
-    """İlk koşulları kontrol eder"""
-    if (rsi_values.get('5m', 0) >= 85 and 
-        rsi_values.get('15m', 0) >= 85):
-        avg = (rsi_values['5m'] + rsi_values['15m'] + 
-               rsi_values['1h'] + rsi_values['4h']) / 4
-        return avg >= 80
-    return False
-
-def main():
-    print("🚀 Binance USDT Futures RSI Tarayıcısı Başlatıldı\n")
-    print(f"🤖 BOT1: {BOT1_CHAT_ID} | BOT2: {BOT2_CHAT_ID}\n")
-    
-    while True:
-        start_time = time.time()
-        symbols = get_usdt_futures_pairs()
         
-        if not symbols:
-            print("⚠️ Sembol listesi alınamadı. 60 saniye bekleniyor...")
-            time.sleep(60)
-            continue
+        rsi_values = {}
+        for interval, closes in zip(intervals, results):
+            if len(closes) >= RSI_WINDOW + 1:
+                df = pd.DataFrame(closes, columns=['close'])
+                rsi = RSIIndicator(df['close'], window=RSI_WINDOW).rsi()
+                rsi_values[interval] = rsi.iloc[-1]
+            else:
+                return None
         
-        print(f"🔍 Toplam {len(symbols)} sembol taraniyor...")
-        alerted_symbols = []
-        
-        for symbol in symbols:
-            try:
-                # 1. Adım: Tüm verileri tek seferde al
-                data = get_latest_data(symbol)
-                if not data:
-                    continue
-                
-                # 2. Adım: RSI değerlerini hesapla
-                rsi_values = calculate_all_rsi(data)
-                if not rsi_values:
-                    continue
-                
-                # 3. Adım: İlk koşulları kontrol et
-                if check_initial_conditions(rsi_values):
-                    # 4. Adım: Mesaj göndermeden önce SON DURUMU tekrar kontrol et
-                    final_data = get_latest_data(symbol)
-                    if not final_data:
-                        continue
-                        
-                    final_rsi = calculate_all_rsi(final_data)
-                    if not final_rsi:
-                        continue
-                        
-                    # Son fiyatı al
-                    current_price = final_data['5m'][-1]
-                    
-                    # Mesajı gönder
-                    if send_telegram_alerts(
-                        symbol,
-                        final_rsi['5m'],
-                        final_rsi['15m'],
-                        final_rsi['1h'],
-                        final_rsi['4h'],
-                        current_price
-                    ):
-                        alerted_symbols.append(symbol)
-                        print(f"✅ Sinyal gönderildi: {symbol}")
-                
-            except Exception as e:
-                print(f"❌ Kritik hata ({symbol}): {str(e)}")
+        if (rsi_values['5m'] >= 85 and 
+            rsi_values['15m'] >= 85 and 
+            (rsi_values['5m'] + rsi_values['15m'] + rsi_values['1h'] + rsi_values['4h']) / 4 >= 80):
             
-            # API limitlerini aşmamak için küçük bir bekleme
-            time.sleep(0.2)
-        
-        scan_duration = time.time() - start_time
-        print(f"\n✅ Tarama tamamlandı (Süre: {scan_duration:.2f}s)")
-        print(f"📢 Sinyal gönderilen semboller: {alerted_symbols or 'Yok'}")
-        print(f"⏳ Sonraki tarama için 60 saniye bekleniyor...\n")
-        time.sleep(60)
+            current_price = results[0][-1]
+            await send_telegram_alert(session, symbol, rsi_values, current_price)
+            return symbol
+    
+    except Exception as e:
+        print(f"❌ {symbol} işlenirken hata: {str(e)}")
+    
+    return None
+
+async def main_scan():
+    connector = aiohttp.TCPConnector(limit=MAX_CONCURRENT_REQUESTS)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        while True:
+            start_time = time.time()
+            print("\n🔍 Yeni tarama başlatılıyor...")
+            
+            symbols = await get_usdt_futures_pairs(session)
+            if not symbols:
+                print("⚠️ Sembol listesi alınamadı. 10 saniye bekleniyor...")
+                await asyncio.sleep(10)
+                continue
+            
+            print(f"📊 {len(symbols)} sembol taranıyor...")
+            
+            # Tüm sembolleri tek seferde tarama (daha agresif)
+            batch_size = len(symbols)  # Tüm sembolleri aynı anda tara
+            alerted_symbols = []
+            
+            for i in range(0, len(symbols), batch_size):
+                batch = symbols[i:i + batch_size]
+                tasks = [check_symbol(session, symbol) for symbol in batch]
+                results = await asyncio.gather(*tasks)
+                alerted_symbols.extend([res for res in results if res is not None])
+            
+            scan_duration = time.time() - start_time
+            print(f"\n✅ Tarama tamamlandı (Süre: {scan_duration:.2f}s)")
+            print(f"📢 Sinyal gönderilen semboller: {alerted_symbols or 'Yok'}")
+            
+            # 1 saniyelik mini bekleme (sürekli döngü için)
+            await asyncio.sleep(1)
 
 if __name__ == "__main__":
-    main()
+    # Daha yüksek performans için event loop ayarı
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main_scan())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.close()
