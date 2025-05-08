@@ -129,9 +129,9 @@ class Scanner:
             
             await self.log(f"📈 {symbol} RSI değerleri: 5m={rsi_values['5m']:.2f} 15m={rsi_values['15m']:.2f} 1h={rsi_values['1h']:.2f} 4h={rsi_values['4h']:.2f}")
             
-            if (rsi_values['5m'] >= 85 and 
-                rsi_values['15m'] >= 85 and 
-                (rsi_values['5m'] + rsi_values['15m'] + rsi_values['1h'] + rsi_values['4h']) / 4 >= 80):
+            if (rsi_values['5m'] >= 90 and 
+                rsi_values['15m'] >= 90 and 
+                (rsi_values['5m'] + rsi_values['15m'] + rsi_values['1h'] + rsi_values['4h']) / 4 >= 85):
                 
                 current_price = results[0][-1]
                 await self.send_telegram_alert(session, symbol, rsi_values, current_price)
