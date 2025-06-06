@@ -50,17 +50,29 @@ class Scanner:
             self.request_counter = 0
             self.last_reset_time = time.time()
 
-    async def send_telegram_alert(self, session, symbol, rsi_values, price):
-        message = (
-            f"💰: {symbol}.P\n"
-            f"🔔: High🔴🔴 RSI Alert +85\n"
-            f"RSI 5minute: {rsi_values['5m']:.2f}\n"
-            f"RSI 15minute: {rsi_values['15m']:.2f}\n"
-            f"RSI 1hour: {rsi_values['1h']:.2f}\n"
-            f"RSI 4hour: {rsi_values['4h']:.2f}\n"
-            f"Last Price: {price:.5f}\n"
-            f"ScalpingPA"
-        )
+    async def send_telegram_alert(self, session, symbol, rsi_values, price, is_high_rsi):
+        if is_high_rsi:
+            message = (
+                f"💰: {symbol}.P\n"
+                f"🔔: High🔴🔴 RSI Alert +85\n"
+                f"RSI 5minute: {rsi_values['5m']:.2f}\n"
+                f"RSI 15minute: {rsi_values['15m']:.2f}\n"
+                f"RSI 1hour: {rsi_values['1h']:.2f}\n"
+                f"RSI 4hour: {rsi_values['4h']:.2f}\n"
+                f"Last Price: {price:.5f}\n"
+                f"ScalpingPA"
+            )
+        else:
+            message = (
+                f"💰: {symbol}.P\n"
+                f"🔔: Low🟢🟢🟢 RSI Alert 15-\n"
+                f"RSI 5minute: {rsi_values['5m']:.2f}\n"
+                f"RSI 15minute: {rsi_values['15m']:.2f}\n"
+                f"RSI 1hour: {rsi_values['1h']:.2f}\n"
+                f"RSI 4hour: {rsi_values['4h']:.2f}\n"
+                f"Last Price: {price:.5f}\n"
+                f"ScalpingPA"
+            )
         
         try:
             tasks = []
@@ -69,7 +81,7 @@ class Scanner:
                 tasks.append(session.post(url, data={"chat_id": chat_id, "text": message}))
             
             await asyncio.gather(*tasks)
-            await self.log(f"✅ Sinyal gönderildi: {symbol}")
+            await self.log(f"✅ Sinyal gönderildi: {symbol} ({'High' if is_high_rsi else 'Low'} RSI)")
             return True
         except Exception as e:
             await self.log(f"❌ Telegram gönderim hatası ({symbol}): {str(e)}")
@@ -129,15 +141,28 @@ class Scanner:
             
             await self.log(f"📈 {symbol} RSI değerleri: 5m={rsi_values['5m']:.2f} 15m={rsi_values['15m']:.2f} 1h={rsi_values['1h']:.2f} 4h={rsi_values['4h']:.2f}")
             
+            current_price = results[0][-1]
+            alerted = False
+            
+            # Yüksek RSI kontrolü
             if (rsi_values['5m'] >= 90 and 
                 rsi_values['15m'] >= 90 and 
                 (rsi_values['5m'] + rsi_values['15m'] + rsi_values['1h'] + rsi_values['4h']) / 4 >= 85):
                 
-                current_price = results[0][-1]
-                await self.send_telegram_alert(session, symbol, rsi_values, current_price)
-                return symbol
+                await self.send_telegram_alert(session, symbol, rsi_values, current_price, True)
+                alerted = True
             
-            return None
+            # Düşük RSI kontrolü
+            elif (rsi_values['5m'] <= 7 and 
+                  rsi_values['15m'] <= 7 and 
+                  rsi_values['1h'] <= 15 and 
+                  rsi_values['4h'] <= 15):
+                
+                await self.send_telegram_alert(session, symbol, rsi_values, current_price, False)
+                alerted = True
+            
+            return symbol if alerted else None
+            
         except Exception as e:
             await self.log(f"❌ {symbol} taranırken hata: {str(e)}")
             return None
