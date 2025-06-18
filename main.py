@@ -155,8 +155,8 @@ class Scanner:
             # Düşük RSI kontrolü
             elif (rsi_values['5m'] <= 7 and 
                   rsi_values['15m'] <= 7 and 
-                  rsi_values['1h'] <= 15 and 
-                  rsi_values['4h'] <= 15):
+                  rsi_values['1h'] <= 20 and 
+                  rsi_values['4h'] <= 20):
                 
                 await self.send_telegram_alert(session, symbol, rsi_values, current_price, False)
                 alerted = True
